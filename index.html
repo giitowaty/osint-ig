@@ -4,7 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>OSINT-IG · Analiza profilu Instagram</title>
-  <meta name="description" content="Wpisz profil Instagram i przeanalizuj jego statystyki." />
+  <meta name="description" content="Wpisz profil Instagram i przeanalizuj jego statystyki, treści i odbiorców." />
+  <meta property="og:title" content="OSINT-IG · Analiza profilu Instagram" />
+  <meta property="og:description" content="Statystyki, treści i szacunek odbiorców profilu IG." />
+  <meta property="og:type" content="website" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23f77737'/%3E%3Cstop offset='1' stop-color='%23e1306c'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100' height='100' rx='22' fill='%230b0f14'/%3E%3Ccircle cx='50' cy='50' r='26' fill='none' stroke='url(%23g)' stroke-width='8'/%3E%3Ccircle cx='50' cy='50' r='7' fill='url(%23g)'/%3E%3C/svg%3E" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -31,6 +35,8 @@
       <button type="submit" id="analyze-btn" class="btn-primary">Analizuj</button>
     </form>
 
+    <div id="history" class="history" hidden></div>
+
     <p id="status" class="status" role="status" aria-live="polite"></p>
 
     <section id="result" class="result" hidden></section>
@@ -38,9 +44,9 @@
 
   <footer class="footer">
     <p>
-      Dane pobierane z publicznego profilu IG przez CORS&#8209;proxy (best&#8209;effort).
-      Gdy pobranie się nie uda, uzupełnij dane ręcznie.
-      Używaj zgodnie z regulaminem Instagrama i prawem.
+      Dane pobierane z publicznego profilu IG przez własny backend&#8209;proxy (best&#8209;effort).
+      Gdy pobranie się nie uda, uzupełnij dane ręcznie. Sekcja płci to szacunek z małej
+      próbki, nie demografia obserwujących. Używaj zgodnie z regulaminem Instagrama i prawem.
     </p>
   </footer>
 
