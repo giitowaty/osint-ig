@@ -25,14 +25,25 @@ window.OsintGraph = (function () {
   }
   const norm = (u) => String(u || "").toLowerCase().replace(/^@+/, "").replace(/.*instagram\.com\//, "").replace(/[/?#].*$/, "").trim();
 
+  function parseList(text) {
+    const out = [];
+    for (const tok of String(text || "").split(/[\s,;]+/)) {
+      const u = norm(tok);
+      if (u.length >= 2) out.push(u);
+    }
+    return [...new Set(out)];
+  }
+
+  function newAcc(connections) {
+    return { connections: (connections || []).slice(), following: [], followers: [] };
+  }
+
   function init(el, fetch, seedUsername, seedConnections) {
     host = el;
     fetchFn = fetch;
     analyzed.clear();
     status = "";
-    if (seedUsername) {
-      analyzed.set(norm(seedUsername), { connections: (seedConnections || []).slice() });
-    }
+    if (seedUsername) analyzed.set(norm(seedUsername), newAcc(seedConnections));
     render();
   }
 
@@ -44,7 +55,7 @@ window.OsintGraph = (function () {
     render();
     try {
       const data = await fetchFn(u);
-      analyzed.set(data.profile.username || u, { connections: data.connections || [] });
+      analyzed.set(data.profile.username || u, newAcc(data.connections));
       status = "";
     } catch (e) {
       status = `Nie udało się dodać @${u}: ${e.message}`;
@@ -54,6 +65,17 @@ window.OsintGraph = (function () {
 
   function removeAccount(u) {
     analyzed.delete(norm(u));
+    render();
+  }
+
+  // Ręcznie wklejona lista znajomych dla konta: type = 'following' | 'follower'.
+  function setList(u, type, text) {
+    const acc = analyzed.get(norm(u));
+    if (!acc) return;
+    const list = parseList(text);
+    const key = type === "follower" ? "followers" : "following";
+    acc[key] = list;
+    status = `Wczytano ${list.length} kont (${type === "follower" ? "obserwujący" : "obserwowani"}) dla @${norm(u)}.`;
     render();
   }
 
@@ -68,13 +90,20 @@ window.OsintGraph = (function () {
     };
     const links = [];
     for (const [u, info] of analyzed) {
-      const a = node(u, true);
-      for (const c of info.connections || []) {
-        const b = node(norm(c.username), false);
+      node(u, true);
+      const addRef = (name, weight, type) => {
+        const nm = norm(name);
+        if (!nm || nm === u) return;
+        const b = node(nm, false);
         b.sources.add(u);
-        b.weight += c.count || 1;
-        links.push({ sId: u, tId: norm(c.username), weight: c.count || 1 });
-      }
+        b.weight += weight;
+        // kierunek: s wskazuje na t (s obserwuje/wspomina t).
+        if (type === "follower") links.push({ sId: nm, tId: u, weight, type });
+        else links.push({ sId: u, tId: nm, weight, type });
+      };
+      for (const c of info.connections || []) addRef(c.username, c.count || 1, "ref");
+      for (const f of info.following || []) addRef(f, 1, "following");
+      for (const f of info.followers || []) addRef(f, 1, "follower");
     }
     // „wspólne” = konto wskazywane przez ≥2 analizowane profile
     for (const n of nodes.values()) n.shared = n.sources.size >= 2;
@@ -126,14 +155,22 @@ window.OsintGraph = (function () {
   /* ----------------------------- Render ---------------------------------- */
   function render() {
     if (!host) return;
-    const chips = [...analyzed.keys()].map((u) =>
-      `<span class="g-chip">@${esc(u)} <button type="button" class="g-x" data-u="${esc(u)}" title="usuń">×</button></span>`
-    ).join("");
+    const accList = [...analyzed.keys()];
+    const chips = accList.map((u) => {
+      const a = analyzed.get(u);
+      const parts = [];
+      if (a.following && a.following.length) parts.push(`obs-ni:${a.following.length}`);
+      if (a.followers && a.followers.length) parts.push(`obs:${a.followers.length}`);
+      const tag = parts.length ? ` <span class="b-src">${parts.join(" ")}</span>` : "";
+      return `<span class="g-chip">@${esc(u)}${tag} <button type="button" class="g-x" data-u="${esc(u)}" title="usuń">×</button></span>`;
+    }).join("");
+    const opts = accList.map((u) => `<option value="${esc(u)}">@${esc(u)}</option>`).join("");
 
     host.innerHTML = `
       <h2 class="section-title">Graf powiązań</h2>
       <p class="muted" style="margin:0 2px 10px">Dodawaj konta, by zobaczyć powiązania (oznaczenia, współautorstwo, @wzmianki).
-        Konto wskazywane przez kilka profili = <span style="color:var(--accent-2)">wspólne powiązanie</span>.</p>
+        Konto wskazywane przez kilka profili = <span style="color:var(--accent-2)">wspólne powiązanie</span>.
+        Możesz też <strong>wkleić ręcznie</strong> listę obserwujących/obserwowanych dla wybranego konta.</p>
       <form class="g-form" id="g-form">
         <div class="field-input" style="flex:1">
           <span class="at">@</span>
@@ -142,17 +179,33 @@ window.OsintGraph = (function () {
         <button type="submit" class="btn-ghost">Dodaj</button>
       </form>
       <div class="g-chips">${chips || '<span class="muted">Brak kont w grafie.</span>'}</div>
+      ${accList.length ? `
+      <details class="b-paste">
+        <summary>Wklej listę znajomych (obserwujący / obserwowani) dla konta</summary>
+        <div class="b-paste-body">
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <select id="g-acc">${opts}</select>
+            <select id="g-type">
+              <option value="following">Obserwowani (to konto obserwuje)</option>
+              <option value="follower">Obserwujący (obserwują to konto)</option>
+            </select>
+          </div>
+          <textarea id="g-text" rows="4" placeholder="Wklej nazwy kont — po spacji, przecinku lub w nowych liniach. @ opcjonalne."></textarea>
+          <button type="button" class="btn-ghost" id="g-apply">Zastosuj do wybranego konta</button>
+        </div>
+      </details>` : ""}
       ${status ? `<p class="muted" style="margin:8px 2px">${esc(status)}</p>` : ""}
       <div class="g-canvas" id="g-canvas"></div>
       <div class="g-legend">
-        <span><span class="g-dot analyzed"></span>analizowane konto</span>
-        <span><span class="g-dot ref"></span>powiązane konto</span>
-        <span><span class="g-dot shared"></span>wspólne (≥2 profile)</span>
+        <span><span class="g-dot analyzed"></span>analizowane</span>
+        <span><span class="g-dot ref"></span>powiązane</span>
+        <span><span class="g-dot shared"></span>wspólne (≥2)</span>
+        <span><span class="g-dot" style="background:#3897f0"></span>obserwuje →</span>
+        <span><span class="g-dot" style="background:#3fb950"></span>obserwujący →</span>
       </div>`;
 
     // zdarzenia
-    const form = host.querySelector("#g-form");
-    form.addEventListener("submit", (e) => {
+    host.querySelector("#g-form").addEventListener("submit", (e) => {
       e.preventDefault();
       const inp = host.querySelector("#g-input");
       addAccount(inp.value);
@@ -160,6 +213,9 @@ window.OsintGraph = (function () {
     });
     host.querySelectorAll(".g-x").forEach((b) =>
       b.addEventListener("click", () => removeAccount(b.dataset.u)));
+    const apply = host.querySelector("#g-apply");
+    if (apply) apply.addEventListener("click", () =>
+      setList(host.querySelector("#g-acc").value, host.querySelector("#g-type").value, host.querySelector("#g-text").value));
 
     drawGraph(host.querySelector("#g-canvas"));
   }
@@ -177,12 +233,13 @@ window.OsintGraph = (function () {
     svg.setAttribute("class", "g-svg");
     const refs = new Map();
 
+    const linkColor = { ref: "var(--border)", following: "#3897f0", follower: "#3fb950" };
     for (const l of links) {
       if (!l.s || !l.t) continue;
       const line = document.createElementNS(SVGNS, "line");
-      line.setAttribute("stroke", "var(--border)");
+      line.setAttribute("stroke", linkColor[l.type] || "var(--border)");
       line.setAttribute("stroke-width", String(Math.min(4, 1 + (l.weight - 1) * 0.6)));
-      line.setAttribute("stroke-opacity", "0.8");
+      line.setAttribute("stroke-opacity", l.type === "ref" ? "0.8" : "0.6");
       svg.appendChild(line);
       l.el = line;
     }

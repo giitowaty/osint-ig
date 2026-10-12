@@ -45,6 +45,9 @@ zewnętrznych), który obchodzi CORS i dokłada nagłówek wymagany przez Instag
   kolejne konta, a graf pokazuje powiązania między nimi (oznaczenia, współautorstwo
   collab, @wzmianki). Konto wskazywane przez ≥2 analizowane profile jest
   wyróżnione jako **wspólne (pośrednie) powiązanie**. Węzły można przeciągać.
+  Dla wybranego konta można też **wkleić ręcznie listę obserwujących /
+  obserwowanych** — wrysowują się jako krawędzie z rozróżnieniem kierunku
+  (niebieskie „obserwuje →”, zielone „obserwujący →”).
 - **Bubble map** — pakowane koła powiązanych kont dla kilku wprowadzonych
   profili: wielkość bąbla = liczba wystąpień, a konto wspólne dla ≥2 profili jest
   wyróżnione. Listy obserwujących/obserwowanych nie są dostępne publicznie, więc
