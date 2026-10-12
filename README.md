@@ -98,6 +98,51 @@ Testy logiki backendu (bez sieci):
 npm test
 ```
 
+## Aplikacja desktopowa (Electron)
+
+Tę samą aplikację można zbudować jako **program desktopowy** (ikona na pulpicie →
+okno z apką), który **nie wymaga od użytkownika instalowania Node ani niczego
+innego** — Electron ma własny runtime, a serwer `api/server.js` jest uruchamiany
+tym właśnie runtime'em jako proces potomny. Logika serwera pozostaje bez zmian;
+warstwa desktopowa to osobny katalog `electron/` (`main.js`, `preload.js`).
+
+Jak to działa: przy starcie aplikacja wybiera **wolny port** (preferowany 8000,
+a jeśli zajęty — losowy, przekazywany do serwera przez `PORT`), uruchamia serwer,
+**czeka (polling HTTP), aż odpowie**, i dopiero wtedy ładuje `http://127.0.0.1:<port>`
+w oknie. Przy zamknięciu okna proces serwera jest poprawnie ubijany.
+
+### Uruchomienie lokalne (deweperskie)
+
+```bash
+npm install          # jednorazowo: pobiera Electron + electron-builder
+npm run electron:dev # otwiera okno desktopowe z działającą apką
+```
+
+### Budowanie instalatorów
+
+Gotowe binarki/instalatory lądują w katalogu **`dist/`**:
+
+```bash
+npm run dist:win     # Windows: instalator NSIS (.exe) + wersja portable
+npm run dist:mac     # macOS:   .dmg
+npm run dist:linux   # Linux:   AppImage
+npm run dist         # bieżąca platforma (wszystkie skonfigurowane cele)
+```
+
+Po instalacji aplikacja startuje **jednym kliknięciem, bez wymogu Node**.
+
+> **Uwaga o cross-buildzie.** Instalatory na **Windows** i **macOS** najlepiej
+> budować **na docelowym systemie** — budowanie Windows/macOS z Linuksa bywa
+> zawodne (podpisywanie, natywne narzędzia, `wine`/`mono`). Linuksowy AppImage
+> buduje się na Linuksie. Najpewniejszy sposób na binarki dla wszystkich trzech
+> systemów naraz to **GitHub Actions** (matryca `windows`/`macos`/`ubuntu`) —
+> patrz `.github/workflows/build-desktop.yml`.
+
+### `npm start` działa jak dotychczas
+
+Warstwa Electrona **niczego nie psuje**: `node api/server.js` / `npm start` dalej
+serwują apkę w przeglądarce na `http://localhost:8000` tak jak wcześniej.
+
 ## Płeć odbiorców — jak to działa i czego NIE pokazuje
 
 **To nie jest demografia obserwujących.** Prawdziwego rozkładu płci followersów
@@ -167,3 +212,6 @@ npm run build:names  # nadpisuje api/names-data.json
 | `api/build-names.mjs` | generator słownika z otwartych zbiorów      |
 | `api/data/pesel/`     | źródłowe CSV z rejestru PESEL (build-time)  |
 | `api/test.js`       | testy parsowania i heurystyki (bez sieci)     |
+| `electron/main.js`  | warstwa desktopowa: start serwera + okno       |
+| `electron/preload.js` | bezpieczny preload (contextIsolation)       |
+| `build/icon.*`      | ikona aplikacji desktopowej                    |

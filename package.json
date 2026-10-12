@@ -3,10 +3,16 @@
   "version": "0.3.0",
   "description": "Analiza profilu Instagram — front + backend proxy (runtime bez zależności).",
   "type": "commonjs",
+  "main": "electron/main.js",
   "scripts": {
     "start": "node api/server.js",
     "test": "node api/test.js",
-    "build:names": "node api/build-names.mjs"
+    "build:names": "node api/build-names.mjs",
+    "electron:dev": "electron .",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win",
+    "dist:mac": "electron-builder --mac",
+    "dist:linux": "electron-builder --linux"
   },
   "engines": {
     "node": ">=18"
@@ -14,9 +20,66 @@
   "devDependencies": {
     "@stdlib/datasets-female-first-names-en": "^0.2.3",
     "@stdlib/datasets-male-first-names-en": "^0.2.3",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
     "gender-detection": "^0.1.0",
     "human-names": "^1.0.13",
     "imieniny": "^1.0.1"
+  },
+  "build": {
+    "appId": "io.github.giitowaty.osintig",
+    "productName": "OSINT-IG",
+    "copyright": "Copyright © 2026 giitowaty",
+    "asar": false,
+    "files": [
+      "electron/**/*",
+      "api/**/*",
+      "index.html",
+      "app.js",
+      "network.js",
+      "collector.js",
+      "session.js",
+      "styles.css",
+      "build/icon.*",
+      "package.json",
+      "!social_analytics/**",
+      "!extension/**",
+      "!**/*.md",
+      "!**/__pycache__/**"
+    ],
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "OSINT-IG"
+    },
+    "mac": {
+      "target": ["dmg"],
+      "category": "public.app-category.utilities",
+      "icon": "build/icon.png"
+    },
+    "linux": {
+      "target": ["AppImage"],
+      "category": "Network",
+      "icon": "build/icon.png",
+      "desktop": {
+        "Name": "OSINT-IG",
+        "Comment": "Analiza profilu Instagram",
+        "Categories": "Network;Utility;"
+      }
+    }
   },
   "license": "MIT"
 }

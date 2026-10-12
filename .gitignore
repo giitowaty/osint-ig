@@ -1,6 +1,11 @@
 node_modules/
 package-lock.json
 *.log
+
+# Artefakty budowania Electrona
+dist/
+out/
+
 .DS_Store
 __pycache__/
 *.pyc

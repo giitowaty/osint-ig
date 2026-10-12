@@ -1,0 +1,56 @@
+name: Build desktop (Electron)
+
+# Buduje instalatory OSINT-IG dla Windows, macOS i Linux na natywnych runnerach
+# (cross-build Win/Mac z Linuksa bywa zawodny, więc każdy system buduje u siebie).
+# Uruchom ręcznie z zakładki Actions lub przez push taga vX.Y.Z.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            script: dist:win
+          - os: macos-latest
+            script: dist:mac
+          - os: ubuntu-latest
+            script: dist:linux
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build installer
+        run: npm run ${{ matrix.script }}
+        env:
+          # Token pozwala electron-builder uniknąć limitów przy pobieraniu.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: osint-ig-${{ matrix.os }}
+          # Instalatory/binarki trafiają do dist/; pomijamy katalogi pośrednie.
+          path: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.AppImage
+            dist/*.zip
+          if-no-files-found: ignore
