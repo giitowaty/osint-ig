@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OSINT-IG · Porównywarka profili Instagram</title>
+  <meta name="description" content="Zestaw dwa profile Instagram obok siebie i porównaj ich statystyki." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">◎</span>
+      <div>
+        <h1>OSINT&#8209;IG</h1>
+        <p class="tagline">Porównywarka profili Instagram</p>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <form id="compare-form" class="search-panel" autocomplete="off">
+      <div class="inputs">
+        <label class="field">
+          <span>Profil A</span>
+          <div class="field-input">
+            <span class="at">@</span>
+            <input type="text" id="user-a" placeholder="nazwa_uzytkownika" spellcheck="false" />
+          </div>
+        </label>
+
+        <span class="vs">VS</span>
+
+        <label class="field">
+          <span>Profil B</span>
+          <div class="field-input">
+            <span class="at">@</span>
+            <input type="text" id="user-b" placeholder="nazwa_uzytkownika" spellcheck="false" />
+          </div>
+        </label>
+      </div>
+
+      <button type="submit" id="compare-btn" class="btn-primary">Porównaj</button>
+    </form>
+
+    <p id="status" class="status" role="status" aria-live="polite"></p>
+
+    <section id="results" class="results" hidden></section>
+  </main>
+
+  <footer class="footer">
+    <p>
+      Dane pobierane z publicznego profilu IG przez CORS&#8209;proxy (best&#8209;effort).
+      Gdy pobranie się nie uda, uzupełnij dane ręcznie.
+      Używaj zgodnie z regulaminem Instagrama i prawem.
+    </p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
