@@ -411,6 +411,39 @@ body {
 .examples li { font-size: 13px; display: flex; align-items: baseline; gap: 7px; }
 .examples .dot { margin-top: 5px; flex-shrink: 0; }
 
+/* ---------- Graf powiązań ---------- */
+.g-form { display: flex; gap: 10px; margin: 0 0 12px; }
+.g-form .field-input { padding: 0 10px; }
+.g-form input { padding: 10px 4px; font-size: 15px; }
+.g-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.g-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--bg-elev); border: 1px solid var(--border);
+  border-radius: 999px; padding: 4px 6px 4px 12px; font-size: 13px; font-weight: 600;
+}
+.g-x {
+  border: none; background: var(--border); color: var(--text);
+  width: 18px; height: 18px; border-radius: 50%; cursor: pointer;
+  font-size: 13px; line-height: 1; display: grid; place-items: center;
+}
+.g-x:hover { background: var(--accent); color: #fff; }
+.g-canvas {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 12px;
+  overflow: hidden;
+}
+.g-svg { display: block; width: 100%; height: auto; touch-action: none; }
+.g-node { user-select: none; }
+.n-analyzed { fill: var(--accent); stroke: #fff; stroke-width: 1.5; }
+.n-shared { fill: var(--accent-2); stroke: var(--bg); stroke-width: 1.5; }
+.n-ref { fill: #4a5768; stroke: var(--bg); stroke-width: 1; }
+.g-label { fill: var(--text); font-size: 12px; font-weight: 600; paint-order: stroke; stroke: var(--bg); stroke-width: 3px; }
+.g-legend { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 10px; font-size: 12.5px; color: var(--text-dim); }
+.g-legend span { display: inline-flex; align-items: center; gap: 7px; }
+.g-dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
+.g-dot.analyzed { background: var(--accent); }
+.g-dot.ref { background: #4a5768; }
+.g-dot.shared { background: var(--accent-2); }
+
 /* ---------- Gender ---------- */
 .disclaimer {
   margin: 0 0 12px; font-size: 12.5px; line-height: 1.5;

@@ -30,6 +30,7 @@ const STATIC = {
   "/index.html": { file: "index.html", type: "text/html; charset=utf-8" },
   "/styles.css": { file: "styles.css", type: "text/css; charset=utf-8" },
   "/app.js": { file: "app.js", type: "application/javascript; charset=utf-8" },
+  "/graph.js": { file: "graph.js", type: "application/javascript; charset=utf-8" },
 };
 
 /* ------------------------------ IG fetch --------------------------------- */
@@ -137,6 +138,28 @@ function collectComments(user) {
 }
 
 /**
+ * Zbiera konta powiązane z profilem: oznaczone na zdjęciach + współautorzy +
+ * @wzmianki w opisach, z liczbą wystąpień. Zwraca [{ username, count }].
+ */
+function collectConnections(posts, own) {
+  const ownN = String(own || "").toLowerCase();
+  const freq = new Map();
+  const bump = (raw) => {
+    const a = String(raw || "").toLowerCase().replace(/^@/, "").trim();
+    if (!a || a === ownN || a.length < 2) return;
+    freq.set(a, (freq.get(a) || 0) + 1);
+  };
+  for (const p of posts) {
+    for (const t of p.tagged || []) bump(t);
+    for (const m of (p.caption || "").matchAll(/@([A-Za-z0-9._]{2,30})/g)) bump(m[1]);
+  }
+  return [...freq.entries()]
+    .map(([username, count]) => ({ username, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 20);
+}
+
+/**
  * Szacuje rozkład płci z próbki komentujących i lajkujących ostatnie posty.
  */
 function estimateAudience(user) {
@@ -201,6 +224,7 @@ function buildPayload(user, username) {
     ok: true,
     profile,
     posts,
+    connections: collectConnections(posts, profile.username),
     audience: estimateAudience(user),
     content: {
       topics,
@@ -262,4 +286,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { server, buildPayload, estimateAudience, normalizePosts };
+module.exports = { server, buildPayload, estimateAudience, normalizePosts, collectConnections };

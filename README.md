@@ -41,6 +41,10 @@ zewnętrznych), który obchodzi CORS i dokłada nagłówek wymagany przez Instag
   próbki podglądowych komentarzy, na bazie leksykonu słów i emoji; z ogólnym
   tonem i przykładami.
 - **Płeć odbiorców (szacunek)** — patrz niżej.
+- **Graf powiązań** — interaktywna mapa sieci (SVG, własna symulacja sił): dodajesz
+  kolejne konta, a graf pokazuje powiązania między nimi (oznaczenia, współautorstwo
+  collab, @wzmianki). Konto wskazywane przez ≥2 analizowane profile jest
+  wyróżnione jako **wspólne (pośrednie) powiązanie**. Węzły można przeciągać.
 - **Eksport** — kopiuj podsumowanie do schowka, pobierz JSON, drukuj do PDF.
 - **Historia** — ostatnio analizowane profile (localStorage), szybkie ponowienie.
 - **Tryb ręczny** — gdy pobranie zawiedzie, kafelki statystyk stają się
@@ -123,6 +127,7 @@ npm run build:names  # nadpisuje api/names-data.json
 | `index.html`     | struktura strony                                 |
 | `styles.css`     | wygląd (ciemny motyw)                             |
 | `app.js`         | front: render, analiza, eksport, historia        |
+| `graph.js`       | graf powiązań (SVG, symulacja sił)               |
 | `api/server.js`     | backend-proxy + serwowanie frontu             |
 | `api/content.js`    | kategorie tematyczne + wydźwięk komentarzy     |
 | `api/names.js`      | heurystyka imię → płeć (ładuje słownik)       |

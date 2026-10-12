@@ -8,7 +8,7 @@ const { guessGender } = require("./names");
 const {
   classifyTopics, commentSentiment, scoreComment, deriveInterests, classifyAccount,
 } = require("./content");
-const { buildPayload } = require("./server");
+const { buildPayload, collectConnections } = require("./server");
 
 let passed = 0;
 function ok(name, fn) {
@@ -133,6 +133,21 @@ ok("klasyfikacja konta prywatnego", () => {
   const c = classifyAccount(
     { category: "", followers: 300, following: 400, verified: false, private: true }, null, []);
   assert.strictEqual(c.primary, "Konto prywatne");
+});
+
+// --- powiązania (graf) ---
+ok("collectConnections zbiera oznaczenia i @wzmianki, sortuje, pomija własne", () => {
+  const posts = [
+    { caption: "foto @brand_a @jan_kowalski", tagged: ["brand_a"] },
+    { caption: "kolejne @brand_a", tagged: [] },
+    { caption: "x", tagged: ["brand_b"] },
+  ];
+  const conns = collectConnections(posts, "jan_kowalski");
+  const map = Object.fromEntries(conns.map((c) => [c.username, c.count]));
+  assert.strictEqual(map["brand_a"], 3);        // 2x tag/wzmianka + 1x wzmianka
+  assert.strictEqual(map["brand_b"], 1);
+  assert.ok(!("jan_kowalski" in map));           // własne konto pominięte
+  assert.strictEqual(conns[0].username, "brand_a"); // posortowane malejąco
 });
 
 // --- payload / audience ---
