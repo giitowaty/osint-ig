@@ -37,20 +37,34 @@ const STATIC = {
 
 /* ------------------------------ IG fetch --------------------------------- */
 
-async function fetchInstagram(username) {
+async function fetchInstagram(username, sessionid) {
   const url = IG_ENDPOINT + encodeURIComponent(username);
-  const res = await fetch(url, {
-    headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-        "(KHTML, like Gecko) Chrome/120.0 Safari/537.36",
-      "x-ig-app-id": IG_APP_ID,
-      Accept: "*/*",
-      "Accept-Language": "en-US,en;q=0.9",
-    },
-  });
+  const headers = {
+    "User-Agent":
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+      "(KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+    "x-ig-app-id": IG_APP_ID,
+    Accept: "*/*",
+    "Accept-Language": "en-US,en;q=0.9",
+    Referer: `https://www.instagram.com/${encodeURIComponent(username)}/`,
+  };
+  // Zalogowana sesja (opcjonalnie) — mocno zwiększa szansę powodzenia, bo IG
+  // blokuje anonimowe zapytania.
+  if (sessionid) headers.Cookie = `sessionid=${sessionid}`;
+  let res;
+  try {
+    res = await fetch(url, { headers });
+  } catch (e) {
+    const err = new Error(
+      "Nie udało się połączyć z Instagramem (fetch failed). " +
+      "Zwykle pomaga ustawienie sesji IG (cookie sessionid)."
+    );
+    err.status = 502;
+    throw err;
+  }
   if (!res.ok) {
-    const err = new Error(`Instagram odpowiedział HTTP ${res.status}`);
+    const err = new Error(`Instagram odpowiedział HTTP ${res.status}` +
+      (res.status === 401 || res.status === 403 ? " (wymaga logowania — ustaw sesję IG)." : ""));
     err.status = res.status === 404 ? 404 : 502;
     throw err;
   }
@@ -343,7 +357,7 @@ const server = http.createServer(async (req, res) => {
     const username = (u.searchParams.get("username") || "").trim();
     if (!username) return sendJson(res, 400, { ok: false, error: "Brak parametru username." });
     try {
-      const user = await fetchInstagram(username);
+      const user = await fetchInstagram(username, req.headers["x-ig-session"]);
       return sendJson(res, 200, buildPayload(user, username));
     } catch (e) {
       return sendJson(res, e.status || 502, { ok: false, error: e.message });

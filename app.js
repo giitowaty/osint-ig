@@ -49,7 +49,12 @@ function emptyProfile(username) {
 /* ------------------------------ Pobieranie ------------------------------- */
 
 async function loadProfile(username) {
-  const res = await fetch(`/api/profile?username=${encodeURIComponent(username)}`);
+  const headers = {};
+  // Dołącz zalogowaną sesję IG, jeśli ustawiona — bez niej IG zwykle blokuje.
+  if (window.OsintSession && window.OsintSession.active()) {
+    headers["x-ig-session"] = window.OsintSession.get();
+  }
+  const res = await fetch(`/api/profile?username=${encodeURIComponent(username)}`, { headers });
   const data = await res.json().catch(() => ({ ok: false, error: "Zła odpowiedź serwera." }));
   if (!res.ok || !data.ok) {
     const err = new Error(data.error || `HTTP ${res.status}`);
@@ -576,3 +581,10 @@ form.addEventListener("submit", async (e) => {
 });
 
 renderHistory();
+
+// Panel sesji IG na głównym ekranie — pozwala wkleić sessionid, żeby „Analizuj”
+// działało automatycznie (bez sesji IG blokuje anonimowe pobieranie).
+if (window.OsintSession) {
+  const mount = document.getElementById("session-mount");
+  if (mount) mount.appendChild(window.OsintSession.settingsNode());
+}
