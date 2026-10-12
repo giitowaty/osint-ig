@@ -157,6 +157,8 @@ window.OsintBubble = (function () {
     if (apply) apply.addEventListener("click", () => {
       setPasted(host.querySelector("#b-acc").value, host.querySelector("#b-text").value);
     });
+    const pasteBody = host.querySelector(".b-paste-body");
+    if (pasteBody && window.OsintCollector) pasteBody.appendChild(window.OsintCollector.helpNode());
 
     draw(host.querySelector("#b-canvas"));
   }

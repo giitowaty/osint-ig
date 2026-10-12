@@ -32,6 +32,7 @@ const STATIC = {
   "/app.js": { file: "app.js", type: "application/javascript; charset=utf-8" },
   "/graph.js": { file: "graph.js", type: "application/javascript; charset=utf-8" },
   "/bubble.js": { file: "bubble.js", type: "application/javascript; charset=utf-8" },
+  "/collector.js": { file: "collector.js", type: "application/javascript; charset=utf-8" },
 };
 
 /* ------------------------------ IG fetch --------------------------------- */

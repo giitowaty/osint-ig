@@ -47,7 +47,14 @@ zewnętrznych), który obchodzi CORS i dokłada nagłówek wymagany przez Instag
   wyróżnione jako **wspólne (pośrednie) powiązanie**. Węzły można przeciągać.
   Dla wybranego konta można też **wkleić ręcznie listę obserwujących /
   obserwowanych** — wrysowują się jako krawędzie z rozróżnieniem kierunku
-  (niebieskie „obserwuje →”, zielone „obserwujący →”).
+  (niebieskie „obserwuje →”, zielone „obserwujący →”). Zebranie listy ułatwia
+  **bookmarklet** (patrz niżej).
+- **Zbieracz listy (bookmarklet)** — list obserwujących/obserwowanych IG nie
+  udostępnia publicznie. Panel wklejania zawiera przeciągany bookmarklet
+  (`collector.js`), który uruchamiasz **sam, we własnej zalogowanej
+  przeglądarce**, na otwartej liście obserwujących danego profilu: przewija ją,
+  zbiera nazwy kont i kopiuje do schowka (nic nie trafia na serwer). To scraping
+  po stronie przeglądarki — używaj z umiarem i zgodnie z regulaminem Instagrama.
 - **Bubble map** — pakowane koła powiązanych kont dla kilku wprowadzonych
   profili: wielkość bąbla = liczba wystąpień, a konto wspólne dla ≥2 profili jest
   wyróżnione. Listy obserwujących/obserwowanych nie są dostępne publicznie, więc
@@ -136,6 +143,7 @@ npm run build:names  # nadpisuje api/names-data.json
 | `app.js`         | front: render, analiza, eksport, historia        |
 | `graph.js`       | graf powiązań (SVG, symulacja sił)               |
 | `bubble.js`      | bubble map nakładających się powiązań             |
+| `collector.js`   | bookmarklet zbierający listę kont w przeglądarce  |
 | `api/server.js`     | backend-proxy + serwowanie frontu             |
 | `api/content.js`    | kategorie tematyczne + wydźwięk komentarzy     |
 | `api/names.js`      | heurystyka imię → płeć (ładuje słownik)       |

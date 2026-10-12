@@ -216,6 +216,8 @@ window.OsintGraph = (function () {
     const apply = host.querySelector("#g-apply");
     if (apply) apply.addEventListener("click", () =>
       setList(host.querySelector("#g-acc").value, host.querySelector("#g-type").value, host.querySelector("#g-text").value));
+    const pasteBody = host.querySelector(".b-paste-body");
+    if (pasteBody && window.OsintCollector) pasteBody.appendChild(window.OsintCollector.helpNode());
 
     drawGraph(host.querySelector("#g-canvas"));
   }
