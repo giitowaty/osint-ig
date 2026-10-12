@@ -69,6 +69,12 @@ zewnętrznych), który obchodzi CORS i dokłada nagłówek wymagany przez Instag
   narzędzia: przeciągany bookmarklet (`collector.js`), który uruchamiasz **sam,
   we własnej przeglądarce**, na otwartej liście obserwujących: przewija ją,
   zbiera nazwy i kopiuje do schowka (nic nie trafia na serwer).
+- **Rozszerzenie przeglądarki** (`extension/`, Chrome/Edge, Manifest V3) — działa
+  bezpośrednio w Twojej **zalogowanej sesji IG**: pokazuje konto, pobiera listę
+  obserwujących/obserwowanych dowolnego profilu i kopiuje do schowka, a także
+  kopiuje `sessionid` jednym kliknięciem. Zapytania idą tylko z Twojej
+  przeglądarki do IG — nic nie trafia na zewnętrzny serwer. Instalacja i uwagi:
+  `extension/README.md`. ⚠ To scraping — nie używaj głównego konta.
 - **Eksport** — kopiuj podsumowanie do schowka, pobierz JSON, drukuj do PDF.
 - **Historia** — ostatnio analizowane profile (localStorage), szybkie ponowienie.
 - **Tryb ręczny** — gdy pobranie zawiedzie, kafelki statystyk stają się
