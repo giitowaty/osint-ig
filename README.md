@@ -23,9 +23,15 @@ zewnętrznych), który obchodzi CORS i dokłada nagłówek wymagany przez Instag
 - **Klasyfikacja konta** — archetyp (fotograf, muzyk, sportowiec, marka,
   influencer, osoba prywatna…) wnioskowany z **kategorii nadanej w IG** oraz
   sygnałów (zasięg, ratio, weryfikacja, dominująca tematyka), z uzasadnieniem.
-- **Tematyka treści** — dominujące kategorie postów (podróże, jedzenie, moda,
-  fitness, zwierzęta, sztuka, muzyka, biznes…) wykrywane z opisów, hashtagów i
-  opisów zdjęć (leksykon PL+EN).
+- **Tematyka treści** — dominujące kategorie postów wykrywane z opisów,
+  hashtagów i opisów zdjęć. Leksykon PL+EN obejmuje ~50 kategorii (m.in.
+  podróże, jedzenie, kawa, moda, streetwear, uroda, wellness, fitness,
+  bieganie, joga, rowery, sporty walki, piłka nożna, narty, wspinaczka, góry,
+  natura, rośliny, zwierzęta, fotografia, sztuka, tatuaże, muzyka, taniec, film,
+  książki, gry, tech/AI, krypto, nauka, historia, biznes, nieruchomości,
+  wnętrza, DIY, rodzina, motoryzacja, motorsport, lotnictwo, żeglarstwo,
+  religia, edukacja, anime, k-pop, imprezy, śluby, memy). Pokazywane są
+  **tylko kategorie faktycznie obecne** na profilu — bez pustych pasków.
 - **Zainteresowania** — ranking (słupki + udziały %) z tego, co konto publikuje
   i udostępnia: kategorie, konkretne hashtagi oraz **oznaczane/wzmiankowane
   konta** (partnerzy, współautorzy collab/regramów, @wzmianki), z kolorowym

@@ -66,6 +66,19 @@ ok("klasyfikuje tematykę: podróże + jedzenie", () => {
   assert.ok(cats.includes("Jedzenie"), "oczek. Jedzenie w " + cats.join(","));
 });
 ok("brak treści -> null", () => assert.strictEqual(classifyTopics([]), null));
+ok("rozszerzony leksykon: wiele granularnych kategorii, tylko obecne", () => {
+  const posts = [
+    { caption: "Nowy tatuaż #tattoo", alt: "" },
+    { caption: "Czytam książkę #bookstagram", alt: "" },
+    { caption: "Krypto #bitcoin #crypto", alt: "" },
+    { caption: "Trekking w górach #tatry", alt: "góry" },
+  ];
+  const cats = classifyTopics(posts).ranked.map((x) => x.category);
+  for (const c of ["Tatuaże", "Książki i literatura", "Finanse i krypto", "Góry i trekking"])
+    assert.ok(cats.includes(c), "oczek. " + c + " w [" + cats.join(", ") + "]");
+  // tylko wykryte kategorie — żadnych pustych/zerowych
+  assert.ok(classifyTopics(posts).ranked.every((x) => x.hits > 0));
+});
 
 // --- content: sentyment ---
 ok("komentarz pozytywny", () => assert.ok(scoreComment("Mega piękne zdjęcie 😍🔥") > 0));

@@ -262,7 +262,7 @@ function interestsHtml(list) {
     const pct = Math.round((i.weight / sum) * 100);
     return `<div class="rank-row">
         <span class="rank-name"><span class="kind-dot ${i.kind}" title="${KIND_LABEL[i.kind] || ""}"></span>${escapeHtml(i.label)}</span>
-        <span class="rank-bar ${i.kind}"><span style="width:${Math.round((i.weight / max) * 100)}%"></span></span>
+        <span class="rank-bar ${i.kind}"><span style="width:${Math.max(8, Math.round((i.weight / max) * 100))}%"></span></span>
         <span class="rank-pct">${pct}%</span>
       </div>`;
   }).join("");
@@ -284,7 +284,7 @@ function topicsHtml(t) {
     const pct = Math.round(x.share * 100);
     return `<div class="topic-row">
         <span class="topic-name">${escapeHtml(x.category)}</span>
-        <span class="topic-bar"><span style="width:${Math.round((x.hits / max) * 100)}%"></span></span>
+        <span class="topic-bar"><span style="width:${Math.max(8, Math.round((x.hits / max) * 100))}%"></span></span>
         <span class="topic-pct">${pct}%</span>
       </div>`;
   }).join("");
