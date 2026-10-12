@@ -55,19 +55,25 @@ wyraźnie tak oznaczony w UI.
 
 ### Słownik imion
 
-Dopasowanie korzysta ze słownika `api/names-data.json` (~19 tys. imion żeńskich
-i ~20 tys. męskich, z diakrytykami i w formie ASCII). **Runtime nie ma żadnych
+Dopasowanie korzysta ze słownika `api/names-data.json` (~24 tys. imion żeńskich
+i ~30 tys. męskich, z diakrytykami i w formie ASCII). **Runtime nie ma żadnych
 zależności** — ładuje tylko gotowy JSON. Słownik jest generowany skryptem
 `api/build-names.mjs` z otwartych zbiorów:
 
+- **oficjalny rejestr PESEL** (osoby żyjące, stan 2021) — autorytatywne źródło
+  dla polskich imion wraz z liczbą wystąpień; pliki w `api/data/pesel/`
+  (patrz [PROVENANCE](api/data/pesel/PROVENANCE.md)),
 - [`gender-detection`](https://www.npmjs.com/package/gender-detection) — wielojęzyczny słownik imię→płeć,
 - [`human-names`](https://www.npmjs.com/package/human-names) — imiona EN/IT/FR/DE/ES/NL,
 - [`@stdlib/datasets-*-first-names-en`](https://www.npmjs.com/package/@stdlib/datasets-female-first-names-en) — angielskie (dane SSA),
 - [`imieniny`](https://www.npmjs.com/package/imieniny) — polski kalendarz imienin (z heurystyką płci PL),
 - kuratorski suplement najpopularniejszych polskich imion i zdrobnień.
 
-Płeć każdego imienia rozstrzygana jest **głosowaniem** źródeł; imiona
-faktycznie uniseks (remis) są pomijane. Regeneracja:
+Płeć każdego imienia rozstrzygana jest **głosowaniem** źródeł (PESEL ma
+najwyższą wagę); imiona faktycznie uniseks (remis / uniseks w PESEL) są
+pomijane. Dzięki PESEL poprawnie rozpoznawane są też przypadki łamiące regułę
+końcówki (męskie na -a: Barnaba, Kosma; żeńskie nie na -a: Noemi, Ingrid) oraz
+rzadkie imiona obce. Regeneracja:
 
 ```bash
 npm install          # instaluje devDependencies (tylko do budowy słownika)
@@ -96,4 +102,5 @@ npm run build:names  # nadpisuje api/names-data.json
 | `api/names.js`      | heurystyka imię → płeć (ładuje słownik)       |
 | `api/names-data.json` | wygenerowany słownik imion (runtime)        |
 | `api/build-names.mjs` | generator słownika z otwartych zbiorów      |
+| `api/data/pesel/`     | źródłowe CSV z rejestru PESEL (build-time)  |
 | `api/test.js`       | testy parsowania i heurystyki (bez sieci)     |

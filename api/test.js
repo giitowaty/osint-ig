@@ -42,6 +42,15 @@ ok("EN: Emily -> female", () => assert.strictEqual(guessGender("Emily", "").gend
 ok("username z imieniem: piotr.nowak99", () =>
   assert.strictEqual(guessGender("", "piotr.nowak99").gender, "male"));
 
+// --- PESEL: przypadki brzegowe łamiące prostą regułę końcówki -a ---
+ok("męskie na -a: Bonawentura", () => assert.strictEqual(guessGender("Bonawentura", "").gender, "male"));
+ok("męskie na -a: Barnaba", () => assert.strictEqual(guessGender("Barnaba", "").gender, "male"));
+ok("męskie na -a: Kosma", () => assert.strictEqual(guessGender("Kosma", "").gender, "male"));
+ok("żeńskie nie na -a: Noemi", () => assert.strictEqual(guessGender("Noemi", "").gender, "female"));
+ok("żeńskie nie na -a: Ingrid", () => assert.strictEqual(guessGender("Ingrid", "").gender, "female"));
+// rzadkie imiona obce z rejestru PESEL (osoby żyjące)
+ok("PESEL obce męskie: Mykola", () => assert.strictEqual(guessGender("Mykola", "").gender, "male"));
+
 // --- payload / audience ---
 const mockUser = {
   username: "demo",

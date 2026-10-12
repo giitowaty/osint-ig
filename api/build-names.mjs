@@ -84,11 +84,49 @@ stats["imieniny:pl"] = plVotes;
 
 // 5) Kuratorski suplement PL: popularne imiona i zdrobnienia używane w nazwach
 // użytkowników (waga 3 — rozstrzyga kolizje z innymi lokalizacjami).
-const PL_MALE = "kuba krzysiek krzysztof michal michał mateusz bartek bartosz tomek tomasz marek darek dariusz staszek stas wojtek wojciech grzesiek grzegorz piotrek piotr pawel paweł lukasz łukasz maciek maciej rafal rafał jacek janek jan adas adam kamil karol filip szymon sebastian damian norbert hubert kacper oskar igor leon antek franek nikodem alan patryk przemek przemysław radek radoslaw slawek sławomir zbyszek zbigniew mietek heniek wladek władysław olek aleksander".split(/\s+/);
+const PL_MALE = "kuba krzysiek krzysztof michal michał mateusz bartek bartosz tomek tomasz marek darek dariusz staszek stas wojtek wojciech grzesiek grzegorz piotrek piotr pawel paweł lukasz łukasz maciek maciej rafal rafał jacek janek jan adas adam kamil karol filip szymon sebastian damian norbert hubert kacper oskar igor leon antek franek nikodem alan patryk przemek przemysław radek radoslaw slawek sławomir zbyszek zbigniew mietek heniek wladek władysław olek aleksander bonawentura barnaba kosma dyzma jarema sawa saba juda nikita kostek".split(/\s+/);
 const PL_FEMALE = "kasia katarzyna gosia malgorzata małgorzata ola aleksandra magda magdalena ela elzbieta elżbieta asia joanna aga agnieszka natalia karolina ania anna basia barbara zosia zofia kinga paulina patrycja justyna sylwia monika marta dorota beata renata iwona dominika weronika wiktoria oliwia maja lena zuzia zuzanna hania hanna amelia alicja gabrysia gabriela nina julia julka emilia klaudia sandra sara nikola roksana martyna wioletta milena edyta marzena bozena bożena ewelina sabina kamila aneta".split(/\s+/);
 for (const n of PL_MALE) vote(n, "male", 3);
 for (const n of PL_FEMALE) vote(n, "female", 3);
 stats["pl-supplement"] = PL_MALE.length + PL_FEMALE.length;
+
+// 6) Oficjalny rejestr PESEL (osoby żyjące, stan 2021-02-04) — źródło
+// autorytatywne (waga 5). Pliki: api/data/pesel/imiona_{meskie,zenskie}.csv
+// Format: IMIĘ_PIERWSZE,PŁEĆ,LICZBA_WYSTĄPIEŃ. Odcinamy rzadkie (szum/literówki).
+const PESEL_MIN = 5;   // minimalna liczba żyjących osób o danym imieniu
+const PESEL_W = 5;     // waga głosu PESEL
+const peselF = new Map(), peselM = new Map();
+function loadPesel(file, bucket) {
+  const p = path.join(__dirname, "data", "pesel", file);
+  if (!fs.existsSync(p)) { console.warn("Pominięto PESEL (brak pliku):", file); return 0; }
+  const lines = fs.readFileSync(p, "utf8").split(/\r?\n/);
+  let n = 0;
+  for (let i = 1; i < lines.length; i++) { // [0] = nagłówek
+    const line = lines[i];
+    if (!line) continue;
+    const cols = line.split(",");
+    const k = norm(cols[0]);
+    const count = parseInt(cols[2], 10) || 0;
+    if (k.length < 2 || count < PESEL_MIN) continue;
+    bucket.set(k, (bucket.get(k) || 0) + count);
+    n++;
+  }
+  return n;
+}
+stats["pesel:female"] = loadPesel("imiona_zenskie.csv", peselF);
+stats["pesel:male"] = loadPesel("imiona_meskie.csv", peselM);
+let peselUnisex = 0;
+for (const k of new Set([...peselF.keys(), ...peselM.keys()])) {
+  const f = peselF.get(k) || 0, m = peselM.get(k) || 0;
+  if (f > 0 && m > 0) {
+    // imię uniseks w PESEL: przypisz płeć o wyraźnej przewadze (≥2×), inaczej pomiń
+    if (f >= m * 2) vote(k, "female", PESEL_W);
+    else if (m >= f * 2) vote(k, "male", PESEL_W);
+    else peselUnisex++;
+  } else if (f > 0) vote(k, "female", PESEL_W);
+  else vote(k, "male", PESEL_W);
+}
+stats["pesel:unisex-pominięte"] = peselUnisex;
 
 // --- decyzja ---
 const female = [], male = [];
