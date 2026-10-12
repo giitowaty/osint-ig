@@ -4,83 +4,57 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>social_analytics · dashboard</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    // Konfiguracja Tailwind; guard na wypadek, gdyby CDN się nie załadował.
-    if (window.tailwind) {
-      tailwind.config = {
-        theme: { extend: { colors: {
-          ink: "#0b0f14", panel: "#121821", elev: "#1a2230", edge: "#243040",
-          dim: "#8b98a8", accent: "#e1306c", accent2: "#f77737",
-          good: "#3fb950", info: "#3897f0",
-        } } }
-      };
-    }
-  </script>
-  <style>
-    body { background:
-      radial-gradient(1200px 600px at 85% -10%, rgba(225,48,108,.12), transparent 60%),
-      radial-gradient(900px 500px at -10% 10%, rgba(247,119,55,.10), transparent 55%), #0b0f14; }
-    .bar > span { transition: width .5s ease; }
-    .node { cursor: grab; } .node:active { cursor: grabbing; }
-  </style>
+  <link rel="stylesheet" href="/static/dashboard.css" />
 </head>
-<body class="min-h-screen text-slate-100">
-  <header class="border-b border-edge px-6 py-4 flex items-center gap-3">
-    <span class="text-3xl bg-gradient-to-br from-accent2 to-accent bg-clip-text text-transparent">◎</span>
+<body>
+  <header class="topbar">
+    <span class="logo">◎</span>
     <div>
-      <h1 class="text-lg font-bold tracking-wide">social_analytics</h1>
-      <p class="text-xs text-dim">Dashboard analizy danych społecznościowych</p>
+      <h1>social_analytics</h1>
+      <p class="tagline">Dashboard analizy danych społecznościowych</p>
     </div>
   </header>
 
-  <main class="max-w-6xl mx-auto px-4 py-6 grid gap-6 lg:grid-cols-[320px_1fr]">
+  <main class="wrap">
     <!-- Panel wejścia -->
-    <section class="bg-panel border border-edge rounded-2xl p-5 h-max lg:sticky lg:top-6">
-      <label class="block text-xs font-semibold text-dim mb-2">Dane JSON (profil + posty)</label>
-      <textarea id="input" rows="12" spellcheck="false"
-        class="w-full bg-elev border border-edge rounded-xl p-3 text-xs font-mono text-slate-200 focus:outline-none focus:border-accent resize-y"
-        placeholder='{"profile": {...}, "posts": [...]}'></textarea>
-      <div class="flex gap-2 mt-3">
-        <button id="analyze" class="flex-1 py-2.5 rounded-xl font-bold text-white bg-gradient-to-br from-accent2 to-accent hover:opacity-90">Analizuj</button>
-        <button id="load-sample" class="px-3 py-2.5 rounded-xl text-sm font-semibold bg-elev border border-edge text-dim hover:text-white hover:border-accent">Przykład</button>
+    <section class="panel input-panel">
+      <label for="input">Dane JSON (profil + posty)</label>
+      <textarea id="input" spellcheck="false" placeholder='{"profile": {...}, "posts": [...]}'></textarea>
+      <div class="actions">
+        <button id="analyze" class="btn-primary">Analizuj</button>
+        <button id="load-sample" class="btn-ghost">Przykład</button>
       </div>
-      <p id="status" class="text-xs text-dim mt-3 min-h-[1rem]"></p>
+      <p id="status" class="status"></p>
     </section>
 
     <!-- Wyniki -->
-    <section id="results" class="space-y-6 hidden">
-      <!-- Nagłówek konta -->
-      <div id="acct" class="bg-panel border border-edge rounded-2xl p-5 flex items-center gap-4"></div>
+    <section id="results" class="results hidden">
+      <div id="acct" class="panel acct-card"></div>
 
-      <!-- Karty statystyk -->
-      <div id="stats" class="grid grid-cols-2 md:grid-cols-4 gap-3"></div>
+      <div id="stats" class="stat-grid"></div>
 
-      <div class="grid gap-6 lg:grid-cols-2">
-        <!-- Tematyka -->
-        <div class="bg-panel border border-edge rounded-2xl p-5">
-          <h2 class="text-sm font-bold uppercase tracking-wide text-dim mb-4">Rozkład tematyczny</h2>
-          <div id="topics" class="space-y-3"></div>
+      <div class="two-col">
+        <div class="panel">
+          <h2 class="section-title">Rozkład tematyczny</h2>
+          <div id="topics"></div>
         </div>
-        <!-- Ranking wpływu -->
-        <div class="bg-panel border border-edge rounded-2xl p-5">
-          <h2 class="text-sm font-bold uppercase tracking-wide text-dim mb-4">Ranking wpływu (centralności)</h2>
-          <ul id="influence" class="space-y-2 text-sm"></ul>
+        <div class="panel">
+          <h2 class="section-title">Ranking wpływu (centralności)</h2>
+          <ul id="influence" class="infl-list"></ul>
         </div>
       </div>
 
-      <!-- Graf -->
-      <div class="bg-panel border border-edge rounded-2xl p-5">
-        <div class="flex items-center justify-between mb-3">
-          <h2 class="text-sm font-bold uppercase tracking-wide text-dim">Graf powiązań</h2>
-          <div id="graph-legend" class="flex flex-wrap gap-3 text-xs text-dim"></div>
+      <div class="panel">
+        <div class="graph-head">
+          <h2 class="section-title" style="margin:0">Graf powiązań</h2>
+          <div id="graph-legend" class="legend"></div>
         </div>
-        <div id="graph" class="rounded-xl border border-edge bg-ink overflow-hidden"></div>
+        <div id="graph"></div>
       </div>
     </section>
   </main>
 
-  <footer class="text-center text-xs text-dim py-6 border-t border-edge mt-6">
+  <footer class="footer">
     Dane analizowane lokalnie przez silnik <code>social_analytics</code> (czysty JSON, bez sieci zewnętrznej).
   </footer>
 

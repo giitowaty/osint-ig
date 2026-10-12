@@ -15,8 +15,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
 function setStatus(msg, kind) {
   const el = $("status");
   el.textContent = msg || "";
-  el.className = "text-xs mt-3 min-h-[1rem] " +
-    (kind === "err" ? "text-amber-400" : kind === "ok" ? "text-good" : "text-dim");
+  el.className = "status" + (kind === "err" ? " err" : kind === "ok" ? " ok" : "");
 }
 
 async function loadSample() {
@@ -66,21 +65,21 @@ function render(data) {
 function renderAcct(p) {
   const initial = (p.username || "?").charAt(0).toUpperCase();
   $("acct").innerHTML = `
-    <div class="w-16 h-16 rounded-full bg-elev border border-edge grid place-items-center text-2xl font-bold text-dim">${esc(initial)}</div>
+    <div class="avatar">${esc(initial)}</div>
     <div>
-      <div class="text-lg font-bold flex items-center gap-2">@${esc(p.username)}
-        ${p.verified ? '<span class="text-info text-sm">✓</span>' : ""}
-        ${p.category ? `<span class="text-[11px] font-semibold text-accent bg-accent/10 border border-accent/30 rounded-full px-2 py-0.5">${esc(p.category)}</span>` : ""}
+      <div class="handle">@${esc(p.username)}
+        ${p.verified ? '<span class="verified">✓</span>' : ""}
+        ${p.category ? `<span class="cat-chip">${esc(p.category)}</span>` : ""}
       </div>
-      ${p.full_name ? `<div class="text-dim text-sm">${esc(p.full_name)}</div>` : ""}
+      ${p.full_name ? `<div class="fullname">${esc(p.full_name)}</div>` : ""}
     </div>`;
 }
 
-function statCard(label, value, sub) {
-  return `<div class="bg-panel border border-edge rounded-xl p-4">
-    <div class="text-xs text-dim font-semibold">${esc(label)}</div>
-    <div class="text-2xl font-extrabold tabular-nums mt-1">${value}</div>
-    ${sub ? `<div class="text-[11px] text-dim mt-0.5">${esc(sub)}</div>` : ""}
+function statCard(label, value, sub, accent) {
+  return `<div class="stat${accent ? " accent" : ""}">
+    <div class="stat-label">${esc(label)}</div>
+    <div class="stat-value">${value}</div>
+    ${sub ? `<div class="stat-sub">${esc(sub)}</div>` : ""}
   </div>`;
 }
 
@@ -88,36 +87,34 @@ function renderStats(m, p) {
   const er = m.engagement_rate_pct;
   $("stats").innerHTML = [
     statCard("Obserwujący", fmt(p.followers)),
-    statCard("Engagement rate", er === null ? "—" : er.toFixed(2) + "%", "śr. (lajki+kom.) / obserwujący"),
+    statCard("Engagement rate", er === null ? "—" : er.toFixed(2) + "%", "śr. (lajki+kom.) / obserwujący", true),
     statCard("Śr. lajki / post", fmt(m.avg_likes)),
     statCard("Posty (próbka)", fmt(m.posts_analyzed), `${fmt(m.total_likes)} lajków łącznie`),
   ].join("");
 }
 
 function renderTopics(topics) {
-  if (!topics || !topics.length) { $("topics").innerHTML = `<p class="text-dim text-sm">Za mało danych do tematyki.</p>`; return; }
+  if (!topics || !topics.length) { $("topics").innerHTML = `<p class="muted">Za mało danych do tematyki.</p>`; return; }
   const max = topics[0].score || 1;
   $("topics").innerHTML = topics.map((t) => {
     const pct = Math.round(t.score * 100);
     const w = Math.max(6, Math.round((t.score / max) * 100));
-    return `<div>
-      <div class="flex justify-between text-sm mb-1"><span class="font-semibold">${esc(t.category)}</span><span class="text-dim tabular-nums">${pct}%</span></div>
-      <div class="bar h-2.5 rounded-full bg-elev overflow-hidden"><span class="block h-full rounded-full bg-gradient-to-r from-accent2 to-accent" style="width:${w}%"></span></div>
+    return `<div class="topic-row">
+      <div class="topic-head"><span class="name">${esc(t.category)}</span><span class="pct">${pct}%</span></div>
+      <div class="bar"><span style="width:${w}%"></span></div>
     </div>`;
   }).join("");
 }
 
-const INFL_COLOR = { hub: "text-accent", bridge: "text-accent2", connector: "text-info", peripheral: "text-dim" };
-
 function renderInfluence(influence) {
-  if (!influence.length) { $("influence").innerHTML = `<li class="text-dim">Brak danych grafowych.</li>`; return; }
+  if (!influence.length) { $("influence").innerHTML = `<li class="muted">Brak danych grafowych.</li>`; return; }
   $("influence").innerHTML = influence.slice(0, 10).map((n) => {
     const label = n.node.startsWith("#") ? n.node : "@" + n.node;
-    return `<li class="flex items-center justify-between gap-2">
-      <span class="truncate">${esc(label)}</span>
-      <span class="flex items-center gap-2 shrink-0">
-        <span class="text-[11px] font-bold uppercase ${INFL_COLOR[n.influence] || "text-dim"}">${esc(n.influence)}</span>
-        <span class="text-dim tabular-nums text-xs">${(n.score).toFixed(2)}</span>
+    return `<li>
+      <span class="node">${esc(label)}</span>
+      <span class="infl-right">
+        <span class="badge ${esc(n.influence)}">${esc(n.influence)}</span>
+        <span class="infl-score">${(n.score).toFixed(2)}</span>
       </span></li>`;
   }).join("");
 }
@@ -132,12 +129,12 @@ function renderGraph(graph, summary) {
     .filter((l) => l.s && l.t);
 
   $("graph-legend").innerHTML = `
-    <span><span class="inline-block w-2.5 h-2.5 rounded-full align-middle" style="background:#e1306c"></span> hub</span>
-    <span><span class="inline-block w-2.5 h-2.5 rounded-full align-middle" style="background:#f77737"></span> bridge</span>
-    <span><span class="inline-block w-2.5 h-2.5 rounded-full align-middle" style="background:#3897f0"></span> konto</span>
-    <span><span class="inline-block w-2.5 h-2.5 rounded-full align-middle" style="background:#4a5768"></span> hashtag</span>`;
+    <span><span class="dot" style="background:#e1306c"></span> hub</span>
+    <span><span class="dot" style="background:#f77737"></span> bridge</span>
+    <span><span class="dot" style="background:#3897f0"></span> konto</span>
+    <span><span class="dot" style="background:#4a5768"></span> hashtag</span>`;
 
-  if (!nodes.length) { host.innerHTML = `<p class="text-dim text-sm text-center py-10">Brak grafu (brak powiązań lub networkx niedostępny).</p>`; return; }
+  if (!nodes.length) { host.innerHTML = `<p class="muted" style="text-align:center;padding:40px 0">Brak grafu (brak powiązań lub networkx niedostępny).</p>`; return; }
 
   layout(nodes, links);
 

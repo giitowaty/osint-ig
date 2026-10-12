@@ -1,7 +1,8 @@
-# social_analytics · dashboard (FastAPI + Tailwind)
+# social_analytics · dashboard (FastAPI)
 
 Lekka warstwa wizualna nad silnikiem `social_analytics`. Serwuje ciemny
-dashboard i API JSON spinające potok `analyze()`.
+dashboard i API JSON spinające potok `analyze()`. Styling jest **samodzielny**
+(`static/dashboard.css`) — bez żadnego CDN, więc działa w pełni offline.
 
 ## Uruchomienie
 
