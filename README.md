@@ -56,9 +56,11 @@ zewnętrznych), który obchodzi CORS i dokłada nagłówek wymagany przez Instag
   opóźnieniami). Cookie trzymane jest **tylko w Twoim `localStorage`**
   (`session.js`), wysyłane do backendu nagłówkiem `x-ig-session` wyłącznie na
   czas zapytania i **nigdzie nie zapisywane**. ⚠ To scraping przez zalogowaną
-  sesję — przeciw ToS IG i **może skutkować blokadą konta**; używaj świadomie,
-  najlepiej z kontem „do zadań specjalnych”. Nie obsługujemy logowania
-  loginem/hasłem (ryzyko, 2FA) — tylko cookie sesji.
+  sesję — przeciw ToS IG i **może skutkować blokadą konta**; panel wyświetla
+  wyraźne ostrzeżenie, by **nie używać głównego konta**, tylko osobnego „do zadań
+  specjalnych”. Po zapisaniu cookie aplikacja weryfikuje sesję (`/api/whoami`) i
+  **pokazuje, z jakiego konta korzysta** („Zalogowano jako @…”). Nie obsługujemy
+  logowania loginem/hasłem (ryzyko, 2FA) — tylko cookie sesji.
 - **Zbieracz listy (bookmarklet)** — alternatywa bez podawania cookie do
   narzędzia: przeciągany bookmarklet (`collector.js`), który uruchamiasz **sam,
   we własnej przeglądarce**, na otwartej liście obserwujących: przewija ją,

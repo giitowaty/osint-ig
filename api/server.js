@@ -124,6 +124,31 @@ async function fetchFriendList(username, type, sessionid, limit) {
   return { ok: true, username: user.username || username, type: path, count: out.length, users: out.slice(0, cap), truncated: out.length >= cap };
 }
 
+/**
+ * Zwraca nazwę konta powiązanego z podanym cookie sesji IG (weryfikacja sesji
+ * i pokazanie „z jakiego konta korzysta aplikacja”). Nie zapisuje sessionid.
+ */
+async function fetchWhoami(sessionid) {
+  const res = await fetch("https://www.instagram.com/api/v1/accounts/current_user/?edit=false", {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+      "x-ig-app-id": IG_APP_ID,
+      "X-Requested-With": "XMLHttpRequest",
+      Referer: "https://www.instagram.com/",
+      Accept: "*/*",
+      Cookie: `sessionid=${sessionid}`,
+    },
+  });
+  if (res.status === 401 || res.status === 403) {
+    const e = new Error("Sesja odrzucona (wygasłe lub błędne cookie)."); e.status = 401; throw e;
+  }
+  if (!res.ok) { const e = new Error(`Instagram HTTP ${res.status}`); e.status = 502; throw e; }
+  const j = await res.json().catch(() => null);
+  const username = j && j.user && j.user.username;
+  if (!username) { const e = new Error("Nie udało się odczytać konta sesji."); e.status = 502; throw e; }
+  return { ok: true, username };
+}
+
 /* ------------------------------ Normalizacja ----------------------------- */
 
 function mediaType(node) {
@@ -321,6 +346,16 @@ const server = http.createServer(async (req, res) => {
     try {
       const user = await fetchInstagram(username);
       return sendJson(res, 200, buildPayload(user, username));
+    } catch (e) {
+      return sendJson(res, e.status || 502, { ok: false, error: e.message });
+    }
+  }
+
+  if (u.pathname === "/api/whoami") {
+    const session = req.headers["x-ig-session"];
+    if (!session) return sendJson(res, 401, { ok: false, error: "Brak sesji IG." });
+    try {
+      return sendJson(res, 200, await fetchWhoami(session));
     } catch (e) {
       return sendJson(res, e.status || 502, { ok: false, error: e.message });
     }

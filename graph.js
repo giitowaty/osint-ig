@@ -234,6 +234,13 @@ window.OsintGraph = (function () {
       } catch (e) { status = `Nie udało się pobrać: ${e.message}`; render(); }
     });
 
+    if (fetchBtn && window.OsintSession && window.OsintSession.account()) {
+      const s = document.createElement("span");
+      s.className = "sess-badge";
+      s.textContent = "sesja: @" + window.OsintSession.account();
+      fetchBtn.parentNode.appendChild(s);
+    }
+
     const pasteBody = host.querySelector(".b-paste-body");
     if (pasteBody && window.OsintCollector) pasteBody.appendChild(window.OsintCollector.helpNode());
     if (pasteBody && window.OsintSession) pasteBody.appendChild(window.OsintSession.settingsNode());
