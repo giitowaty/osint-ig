@@ -15,6 +15,7 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const { guessGender } = require("./names");
+const { classifyTopics, commentSentiment } = require("./content");
 
 const ROOT = path.join(__dirname, "..");
 const PORT = process.env.PORT || 8000;
@@ -102,21 +103,37 @@ function normalizePosts(user) {
 }
 
 /**
- * Zbiera próbkę użytkowników z podglądowych komentarzy i polubień postów
- * (bez dodatkowych zapytań) i szacuje rozkład płci.
+ * Zbiera podglądowe komentarze z ostatnich postów (bez dodatkowych zapytań).
+ * Zwraca [{ username, fullName, text }].
+ */
+function collectComments(user) {
+  const edges =
+    (user.edge_owner_to_timeline_media && user.edge_owner_to_timeline_media.edges) || [];
+  const out = [];
+  for (const { node } of edges) {
+    const comments =
+      (node.edge_media_preview_comment && node.edge_media_preview_comment.edges) || [];
+    for (const e of comments) {
+      const n = e.node || {};
+      const o = n.owner || {};
+      out.push({ username: o.username || "", fullName: o.full_name || "", text: n.text || "" });
+    }
+  }
+  return out;
+}
+
+/**
+ * Szacuje rozkład płci z próbki komentujących i lajkujących ostatnie posty.
  */
 function estimateAudience(user) {
   const edges =
     (user.edge_owner_to_timeline_media && user.edge_owner_to_timeline_media.edges) || [];
 
   const seen = new Map(); // username -> fullName
+  for (const c of collectComments(user)) {
+    if (c.username) seen.set(c.username, c.fullName);
+  }
   for (const { node } of edges) {
-    const comments =
-      (node.edge_media_preview_comment && node.edge_media_preview_comment.edges) || [];
-    for (const e of comments) {
-      const o = e.node && e.node.owner;
-      if (o && o.username) seen.set(o.username, o.full_name || "");
-    }
     const likes =
       (node.edge_media_preview_like && node.edge_media_preview_like.edges) || [];
     for (const e of likes) {
@@ -145,6 +162,8 @@ function estimateAudience(user) {
 }
 
 function buildPayload(user, username) {
+  const posts = normalizePosts(user);
+  const comments = collectComments(user);
   return {
     ok: true,
     profile: {
@@ -161,8 +180,12 @@ function buildPayload(user, username) {
         ? user.edge_owner_to_timeline_media.count
         : null,
     },
-    posts: normalizePosts(user),
+    posts,
     audience: estimateAudience(user),
+    content: {
+      topics: classifyTopics(posts),
+      sentiment: commentSentiment(comments),
+    },
   };
 }
 

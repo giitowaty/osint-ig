@@ -332,6 +332,28 @@ body {
 .muted { color: var(--text-dim); font-size: 13px; }
 .insights strong { color: var(--text); }
 
+/* ---------- Topics ---------- */
+.topics { display: flex; flex-direction: column; gap: 9px; }
+.topic-row { display: grid; grid-template-columns: 150px 1fr 42px; align-items: center; gap: 10px; }
+.topic-name { font-size: 13px; font-weight: 600; }
+.topic-bar { height: 10px; border-radius: 999px; background: var(--bg-elev); overflow: hidden; }
+.topic-bar > span {
+  display: block; height: 100%; border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent-2), var(--accent));
+}
+.topic-pct { font-size: 12px; color: var(--text-dim); text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ---------- Sentiment / examples ---------- */
+.seg.pos { background: #3fb950; }
+.seg.neu { background: #4a5768; }
+.seg.neg { background: #e5534b; }
+.dot.pos { background: #3fb950; }
+.dot.neu { background: #4a5768; }
+.dot.neg { background: #e5534b; }
+.examples { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.examples li { font-size: 13px; display: flex; align-items: baseline; gap: 7px; }
+.examples .dot { margin-top: 5px; flex-shrink: 0; }
+
 /* ---------- Gender ---------- */
 .disclaimer {
   margin: 0 0 12px; font-size: 12.5px; line-height: 1.5;
@@ -362,6 +384,7 @@ body {
   .tiles { grid-template-columns: repeat(2, 1fr); }
   .posts { grid-template-columns: repeat(3, 1fr); }
   .export { width: 100%; margin: 10px 0 0; }
+  .topic-row { grid-template-columns: 110px 1fr 38px; }
 }
 
 /* ---------- Print / PDF ---------- */

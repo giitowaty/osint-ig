@@ -230,6 +230,51 @@ function summaryHtml(s) {
     ${tags}`;
 }
 
+function topicsHtml(t) {
+  if (!t || !t.topics || !t.topics.length) {
+    return `<h2 class="section-title">Tematyka treści</h2>
+      <p class="muted">Za mało opisów/hashtagów, by określić tematykę.</p>`;
+  }
+  const max = t.topics[0].hits || 1;
+  const rows = t.topics.map((x) => {
+    const pct = Math.round(x.share * 100);
+    return `<div class="topic-row">
+        <span class="topic-name">${escapeHtml(x.category)}</span>
+        <span class="topic-bar"><span style="width:${Math.round((x.hits / max) * 100)}%"></span></span>
+        <span class="topic-pct">${pct}%</span>
+      </div>`;
+  }).join("");
+  return `<h2 class="section-title">Tematyka treści</h2>
+    <p class="muted" style="margin:0 2px 10px">Dominujące tematy wg opisów, hashtagów i opisów zdjęć:</p>
+    <div class="topics">${rows}</div>`;
+}
+
+function sentimentHtml(s) {
+  if (!s || !s.available) {
+    return `<h2 class="section-title">Wydźwięk komentarzy</h2>
+      <p class="manual-note">${escapeHtml((s && s.reason) || "Brak komentarzy do analizy.")}</p>`;
+  }
+  const total = s.positive + s.neutral + s.negative || 1;
+  const bar = (cls, n) => `<div class="seg ${cls}" style="width:${(n / total) * 100}%" title="${n}"></div>`;
+  const ex = (label, cls, txt) => txt
+    ? `<li><span class="dot ${cls}"></span><span class="muted">${label}:</span> „${escapeHtml(txt)}”</li>`
+    : "";
+  return `
+    <h2 class="section-title">Wydźwięk komentarzy</h2>
+    <p class="disclaimer">⚠ Szacunek wydźwięku z próbki ${s.sampleSize} podglądowych komentarzy
+      (leksykon słów + emoji). Ogólny ton: <strong>${escapeHtml(s.tone)}</strong>.</p>
+    <div class="genderbar">${bar("pos", s.positive)}${bar("neu", s.neutral)}${bar("neg", s.negative)}</div>
+    <ul class="gender-legend">
+      <li><span class="dot pos"></span>Pozytywne: ${s.positive} (${s.positivePct}%)</li>
+      <li><span class="dot neu"></span>Neutralne: ${s.neutral} (${s.neutralPct}%)</li>
+      <li><span class="dot neg"></span>Negatywne: ${s.negative} (${s.negativePct}%)</li>
+    </ul>
+    <ul class="examples">
+      ${ex("przykład +", "pos", s.examples && s.examples.positive)}
+      ${ex("przykład −", "neg", s.examples && s.examples.negative)}
+    </ul>`;
+}
+
 function audienceHtml(a) {
   if (!a) return "";
   if (!a.available) {
@@ -266,6 +311,15 @@ function exportText(c) {
     if (s.engagement != null) L.push(`Zaangażowanie: ${s.engagement.toFixed(2)}%`);
     if (s.topTags.length) L.push(`Hashtagi: ${s.topTags.map((t) => "#" + t).join(" ")}`);
   }
+  const content = c.content;
+  if (content && content.topics && content.topics.topics && content.topics.topics.length) {
+    L.push("");
+    L.push("Tematyka: " + content.topics.topics.map((t) => `${t.category} ${Math.round(t.share * 100)}%`).join(", "));
+  }
+  if (content && content.sentiment && content.sentiment.available) {
+    const s = content.sentiment;
+    L.push(`Wydźwięk komentarzy (${s.sampleSize}): ${s.tone} — poz ${s.positivePct}% / neu ${s.neutralPct}% / neg ${s.negativePct}%`);
+  }
   if (a && a.available) {
     L.push("");
     L.push(`Płeć odbiorców (szacunek, próbka ${a.sampleSize}): K ${a.female} / M ${a.male} / ? ${a.unknown}`);
@@ -279,6 +333,7 @@ function render(data) {
     profile: p,
     posts: data.posts || [],
     audience: data.audience || null,
+    content: data.content || null,
     summary: p.manual ? null : contentSummary(data.posts, p),
   };
 
@@ -320,6 +375,8 @@ function render(data) {
       <div id="insights-wrap">${insightsHtml(p)}</div>
       ${postsHtml(current.posts)}
       ${summaryHtml(current.summary)}
+      ${current.content ? topicsHtml(current.content.topics) : ""}
+      ${current.content ? sentimentHtml(current.content.sentiment) : ""}
       ${audienceHtml(current.audience)}
     </article>`;
   resultEl.hidden = false;

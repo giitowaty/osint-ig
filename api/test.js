@@ -5,6 +5,7 @@
 
 const assert = require("assert");
 const { guessGender } = require("./names");
+const { classifyTopics, commentSentiment, scoreComment } = require("./content");
 const { buildPayload } = require("./server");
 
 let passed = 0;
@@ -51,6 +52,36 @@ ok("żeńskie nie na -a: Ingrid", () => assert.strictEqual(guessGender("Ingrid",
 // rzadkie imiona obce z rejestru PESEL (osoby żyjące)
 ok("PESEL obce męskie: Mykola", () => assert.strictEqual(guessGender("Mykola", "").gender, "male"));
 
+// --- content: kategorie ---
+ok("klasyfikuje tematykę: podróże + jedzenie", () => {
+  const posts = [
+    { caption: "Wakacje w górach, piękna plaża #travel #podroze", alt: "" },
+    { caption: "Najlepszy przepis na obiad #food #foodie", alt: "jedzenie na talerzu" },
+  ];
+  const t = classifyTopics(posts);
+  const cats = t.topics.map((x) => x.category);
+  assert.ok(cats.includes("Podróże"), "oczek. Podróże w " + cats.join(","));
+  assert.ok(cats.includes("Jedzenie"), "oczek. Jedzenie w " + cats.join(","));
+});
+ok("brak treści -> null", () => assert.strictEqual(classifyTopics([]), null));
+
+// --- content: sentyment ---
+ok("komentarz pozytywny", () => assert.ok(scoreComment("Mega piękne zdjęcie 😍🔥") > 0));
+ok("komentarz negatywny", () => assert.ok(scoreComment("słabe i brzydkie 👎") < 0));
+ok("komentarz neutralny", () => assert.strictEqual(scoreComment("ok, dzień dobry"), 0));
+ok("agregacja wydźwięku", () => {
+  const s = commentSentiment([
+    { text: "super mega 😍" }, { text: "cudownie ❤️" }, { text: "no słabe 👎" }, { text: "jest" },
+  ]);
+  assert.strictEqual(s.available, true);
+  assert.strictEqual(s.sampleSize, 4);
+  assert.strictEqual(s.positive, 2);
+  assert.strictEqual(s.negative, 1);
+  assert.strictEqual(s.neutral, 1);
+});
+ok("brak komentarzy -> unavailable", () =>
+  assert.strictEqual(commentSentiment([]).available, false));
+
 // --- payload / audience ---
 const mockUser = {
   username: "demo",
@@ -72,8 +103,8 @@ const mockUser = {
         edge_media_to_caption: { edges: [{ node: { text: "Opis #foto #lato" } }] },
         accessibility_caption: "Zdjęcie plaży",
         edge_media_preview_comment: { edges: [
-          { node: { owner: { username: "anna_nowak", full_name: "Anna Nowak" } } },
-          { node: { owner: { username: "piotr99", full_name: "Piotr" } } },
+          { node: { text: "Mega piękne! 😍🔥", owner: { username: "anna_nowak", full_name: "Anna Nowak" } } },
+          { node: { text: "no słabe 👎", owner: { username: "piotr99", full_name: "Piotr" } } },
         ]},
         edge_media_preview_like: { edges: [
           { node: { username: "xqz_777", full_name: "" } },
@@ -110,6 +141,13 @@ ok("audience zbiera próbkę i szacuje płeć", () => {
   assert.strictEqual(payload.audience.female, 2);      // anna, magdalena
   assert.strictEqual(payload.audience.male, 1);        // piotr
   assert.strictEqual(payload.audience.unknown, 1);     // xqz
+});
+ok("payload zawiera analizę treści", () => {
+  assert.ok(payload.content, "brak content");
+  assert.ok(payload.content.topics && payload.content.topics.topics.length >= 1);
+  assert.strictEqual(payload.content.sentiment.available, true);
+  assert.strictEqual(payload.content.sentiment.positive, 1); // "Mega piękne 😍🔥"
+  assert.strictEqual(payload.content.sentiment.negative, 1); // "no słabe 👎"
 });
 
 console.log(`\n${passed} testów przeszło ✓`);

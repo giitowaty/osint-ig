@@ -15,6 +15,12 @@ zewnętrznych), który obchodzi CORS i dokłada nagłówek wymagany przez Instag
 - **Podsumowanie treści** — rozkład formatów, **wskaźnik zaangażowania**
   (engagement = śr. (lajki + komentarze) ÷ obserwujący), średnie lajki,
   najczęstsze hashtagi.
+- **Tematyka treści** — dominujące kategorie postów (podróże, jedzenie, moda,
+  fitness, zwierzęta, sztuka, muzyka, biznes…) wykrywane z opisów, hashtagów i
+  opisów zdjęć (leksykon PL+EN).
+- **Wydźwięk komentarzy** — sentyment (pozytywny / neutralny / negatywny) z
+  próbki podglądowych komentarzy, na bazie leksykonu słów i emoji; z ogólnym
+  tonem i przykładami.
 - **Płeć odbiorców (szacunek)** — patrz niżej.
 - **Eksport** — kopiuj podsumowanie do schowka, pobierz JSON, drukuj do PDF.
 - **Historia** — ostatnio analizowane profile (localStorage), szybkie ponowienie.
@@ -99,6 +105,7 @@ npm run build:names  # nadpisuje api/names-data.json
 | `styles.css`     | wygląd (ciemny motyw)                             |
 | `app.js`         | front: render, analiza, eksport, historia        |
 | `api/server.js`     | backend-proxy + serwowanie frontu             |
+| `api/content.js`    | kategorie tematyczne + wydźwięk komentarzy     |
 | `api/names.js`      | heurystyka imię → płeć (ładuje słownik)       |
 | `api/names-data.json` | wygenerowany słownik imion (runtime)        |
 | `api/build-names.mjs` | generator słownika z otwartych zbiorów      |
