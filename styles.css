@@ -444,6 +444,21 @@ body {
 .g-dot.ref { background: #4a5768; }
 .g-dot.shared { background: var(--accent-2); }
 
+/* ---------- Bubble map ---------- */
+.b-ref { fill: #3f5168; fill-opacity: 0.85; stroke: var(--bg); stroke-width: 1; }
+.b-shared { fill: var(--accent-2); fill-opacity: 0.9; stroke: var(--bg); stroke-width: 1.5; }
+.b-label { fill: #fff; font-size: 11px; font-weight: 600; pointer-events: none; paint-order: stroke; stroke: rgba(0,0,0,0.35); stroke-width: 2px; }
+.b-src { font-size: 11px; color: var(--accent-2); font-weight: 700; }
+.b-paste { margin-bottom: 12px; border: 1px solid var(--border); border-radius: 10px; padding: 0 12px; }
+.b-paste summary { cursor: pointer; padding: 10px 0; font-size: 13px; font-weight: 600; color: var(--text-dim); }
+.b-paste summary:hover { color: var(--text); }
+.b-paste-body { display: flex; flex-direction: column; gap: 8px; padding: 0 0 12px; }
+.b-paste select, .b-paste textarea {
+  background: var(--bg-elev); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text); font-size: 14px; padding: 8px 10px; font-family: inherit;
+}
+.b-paste textarea { resize: vertical; }
+
 /* ---------- Gender ---------- */
 .disclaimer {
   margin: 0 0 12px; font-size: 12.5px; line-height: 1.5;

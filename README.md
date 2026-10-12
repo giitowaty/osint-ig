@@ -45,6 +45,10 @@ zewnętrznych), który obchodzi CORS i dokłada nagłówek wymagany przez Instag
   kolejne konta, a graf pokazuje powiązania między nimi (oznaczenia, współautorstwo
   collab, @wzmianki). Konto wskazywane przez ≥2 analizowane profile jest
   wyróżnione jako **wspólne (pośrednie) powiązanie**. Węzły można przeciągać.
+- **Bubble map** — pakowane koła powiązanych kont dla kilku wprowadzonych
+  profili: wielkość bąbla = liczba wystąpień, a konto wspólne dla ≥2 profili jest
+  wyróżnione. Listy obserwujących/obserwowanych nie są dostępne publicznie, więc
+  można je **wkleić ręcznie** per konto, by zobaczyć realne nakładki między listami.
 - **Eksport** — kopiuj podsumowanie do schowka, pobierz JSON, drukuj do PDF.
 - **Historia** — ostatnio analizowane profile (localStorage), szybkie ponowienie.
 - **Tryb ręczny** — gdy pobranie zawiedzie, kafelki statystyk stają się
@@ -128,6 +132,7 @@ npm run build:names  # nadpisuje api/names-data.json
 | `styles.css`     | wygląd (ciemny motyw)                             |
 | `app.js`         | front: render, analiza, eksport, historia        |
 | `graph.js`       | graf powiązań (SVG, symulacja sił)               |
+| `bubble.js`      | bubble map nakładających się powiązań             |
 | `api/server.js`     | backend-proxy + serwowanie frontu             |
 | `api/content.js`    | kategorie tematyczne + wydźwięk komentarzy     |
 | `api/names.js`      | heurystyka imię → płeć (ładuje słownik)       |

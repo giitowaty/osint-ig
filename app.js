@@ -438,6 +438,7 @@ function render(data) {
           <button class="navitem" data-tab="tresci" role="tab"><span class="ni">🖼️</span> Treści</button>
           <button class="navitem" data-tab="odbiorcy" role="tab"><span class="ni">👥</span> Odbiorcy</button>
           <button class="navitem" data-tab="graf" role="tab"><span class="ni">🕸️</span> Graf</button>
+          <button class="navitem" data-tab="bable" role="tab"><span class="ni">🫧</span> Bąbelki</button>
         </nav>
         <div class="panels">
           <section class="tab-panel active" data-panel="przeglad">
@@ -464,6 +465,9 @@ function render(data) {
           <section class="tab-panel" data-panel="graf">
             <div id="graph-host"></div>
           </section>
+          <section class="tab-panel" data-panel="bable">
+            <div id="bubble-host"></div>
+          </section>
         </div>
       </div>`;
   }
@@ -471,10 +475,14 @@ function render(data) {
   resultEl.innerHTML = `<article class="card">${head}${body}</article>`;
   resultEl.hidden = false;
 
-  // Graf powiązań (seed = bieżący profil i jego powiązania).
+  // Graf powiązań i bubble map (seed = bieżący profil i jego powiązania).
   if (!p.manual && window.OsintGraph) {
     const gh = document.getElementById("graph-host");
     if (gh) window.OsintGraph.init(gh, loadProfile, p.username, current.connections);
+  }
+  if (!p.manual && window.OsintBubble) {
+    const bh = document.getElementById("bubble-host");
+    if (bh) window.OsintBubble.init(bh, loadProfile, p.username, current.connections);
   }
 
   // Przełączanie zakładek (boczna nawigacja).
