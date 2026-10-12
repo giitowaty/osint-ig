@@ -191,7 +191,10 @@ window.OsintGraph = (function () {
             </select>
           </div>
           <textarea id="g-text" rows="4" placeholder="Wklej nazwy kont — po spacji, przecinku lub w nowych liniach. @ opcjonalne."></textarea>
-          <button type="button" class="btn-ghost" id="g-apply">Zastosuj do wybranego konta</button>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button type="button" class="btn-ghost" id="g-apply">Zastosuj do wybranego konta</button>
+            <button type="button" class="btn-ghost" id="g-fetch">⤓ Pobierz z sesji IG</button>
+          </div>
         </div>
       </details>` : ""}
       ${status ? `<p class="muted" style="margin:8px 2px">${esc(status)}</p>` : ""}
@@ -216,8 +219,24 @@ window.OsintGraph = (function () {
     const apply = host.querySelector("#g-apply");
     if (apply) apply.addEventListener("click", () =>
       setList(host.querySelector("#g-acc").value, host.querySelector("#g-type").value, host.querySelector("#g-text").value));
+    const fetchBtn = host.querySelector("#g-fetch");
+    if (fetchBtn) fetchBtn.addEventListener("click", async () => {
+      if (!window.OsintSession || !window.OsintSession.active()) {
+        status = "Najpierw ustaw sesję IG (panel 🔐 poniżej)."; render(); return;
+      }
+      const uu = host.querySelector("#g-acc").value;
+      const tt = host.querySelector("#g-type").value;
+      status = `Pobieram listę (${tt === "follower" ? "obserwujący" : "obserwowani"}) dla @${uu}…`; render();
+      try {
+        const r = await window.OsintSession.fetchList(uu, tt === "follower" ? "followers" : "following");
+        setList(uu, tt, r.users.join("\n"));
+        if (r.truncated) status += " (ucięto do limitu)";
+      } catch (e) { status = `Nie udało się pobrać: ${e.message}`; render(); }
+    });
+
     const pasteBody = host.querySelector(".b-paste-body");
     if (pasteBody && window.OsintCollector) pasteBody.appendChild(window.OsintCollector.helpNode());
+    if (pasteBody && window.OsintSession) pasteBody.appendChild(window.OsintSession.settingsNode());
 
     drawGraph(host.querySelector("#g-canvas"));
   }

@@ -49,12 +49,20 @@ zewnętrznych), który obchodzi CORS i dokłada nagłówek wymagany przez Instag
   obserwowanych** — wrysowują się jako krawędzie z rozróżnieniem kierunku
   (niebieskie „obserwuje →”, zielone „obserwujący →”). Zebranie listy ułatwia
   **bookmarklet** (patrz niżej).
-- **Zbieracz listy (bookmarklet)** — list obserwujących/obserwowanych IG nie
-  udostępnia publicznie. Panel wklejania zawiera przeciągany bookmarklet
-  (`collector.js`), który uruchamiasz **sam, we własnej zalogowanej
-  przeglądarce**, na otwartej liście obserwujących danego profilu: przewija ją,
-  zbiera nazwy kont i kopiuje do schowka (nic nie trafia na serwer). To scraping
-  po stronie przeglądarki — używaj z umiarem i zgodnie z regulaminem Instagrama.
+- **Auto-pobieranie listy przez sesję IG (opcjonalne)** — w panelu wklejania
+  możesz podać własny `sessionid` (cookie z Twojej zalogowanej przeglądarki);
+  wtedy przycisk „⤓ Pobierz z sesji IG” automatycznie zaciąga listę
+  obserwujących/obserwowanych wybranego konta (backend `/api/list`, paginacja z
+  opóźnieniami). Cookie trzymane jest **tylko w Twoim `localStorage`**
+  (`session.js`), wysyłane do backendu nagłówkiem `x-ig-session` wyłącznie na
+  czas zapytania i **nigdzie nie zapisywane**. ⚠ To scraping przez zalogowaną
+  sesję — przeciw ToS IG i **może skutkować blokadą konta**; używaj świadomie,
+  najlepiej z kontem „do zadań specjalnych”. Nie obsługujemy logowania
+  loginem/hasłem (ryzyko, 2FA) — tylko cookie sesji.
+- **Zbieracz listy (bookmarklet)** — alternatywa bez podawania cookie do
+  narzędzia: przeciągany bookmarklet (`collector.js`), który uruchamiasz **sam,
+  we własnej przeglądarce**, na otwartej liście obserwujących: przewija ją,
+  zbiera nazwy i kopiuje do schowka (nic nie trafia na serwer).
 - **Bubble map** — pakowane koła powiązanych kont dla kilku wprowadzonych
   profili: wielkość bąbla = liczba wystąpień, a konto wspólne dla ≥2 profili jest
   wyróżnione. Listy obserwujących/obserwowanych nie są dostępne publicznie, więc
@@ -144,6 +152,7 @@ npm run build:names  # nadpisuje api/names-data.json
 | `graph.js`       | graf powiązań (SVG, symulacja sił)               |
 | `bubble.js`      | bubble map nakładających się powiązań             |
 | `collector.js`   | bookmarklet zbierający listę kont w przeglądarce  |
+| `session.js`     | opcjonalna sesja IG (cookie) do auto-pobierania    |
 | `api/server.js`     | backend-proxy + serwowanie frontu             |
 | `api/content.js`    | kategorie tematyczne + wydźwięk komentarzy     |
 | `api/names.js`      | heurystyka imię → płeć (ładuje słownik)       |

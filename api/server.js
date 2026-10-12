@@ -33,6 +33,7 @@ const STATIC = {
   "/graph.js": { file: "graph.js", type: "application/javascript; charset=utf-8" },
   "/bubble.js": { file: "bubble.js", type: "application/javascript; charset=utf-8" },
   "/collector.js": { file: "collector.js", type: "application/javascript; charset=utf-8" },
+  "/session.js": { file: "session.js", type: "application/javascript; charset=utf-8" },
 };
 
 /* ------------------------------ IG fetch --------------------------------- */
@@ -70,6 +71,57 @@ async function fetchInstagram(username) {
     throw err;
   }
   return user;
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Wyłuskuje nazwy kont z odpowiedzi IG (friendships followers/following).
+function usersFromResponse(j) {
+  if (!j || !Array.isArray(j.users)) return [];
+  return j.users.map((u) => u && u.username).filter(Boolean);
+}
+
+/**
+ * Pobiera listę obserwujących/obserwowanych konta przy użyciu cookie sesji IG
+ * podanego przez użytkownika. Scraping przez zalogowaną sesję — używane tylko
+ * na żądanie, sessionid nie jest nigdzie zapisywany.
+ */
+async function fetchFriendList(username, type, sessionid, limit) {
+  const user = await fetchInstagram(username); // daje m.in. user.id
+  const id = user.id;
+  if (!id) { const e = new Error("Nie udało się ustalić ID konta."); e.status = 502; throw e; }
+  const path = type === "following" ? "following" : "followers";
+  const cap = Math.min(Math.max(1, limit || 300), 2000);
+  const PAGE = 50;
+  const out = [];
+  let maxId = "", pages = 0;
+  while (out.length < cap && pages < Math.ceil(cap / PAGE) + 3) {
+    const url = `https://www.instagram.com/api/v1/friendships/${id}/${path}/?count=${PAGE}` +
+      (maxId ? `&max_id=${encodeURIComponent(maxId)}` : "");
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+        "x-ig-app-id": IG_APP_ID,
+        "X-Requested-With": "XMLHttpRequest",
+        Referer: `https://www.instagram.com/${encodeURIComponent(username)}/`,
+        Accept: "*/*",
+        Cookie: `sessionid=${sessionid}`,
+      },
+    });
+    if (res.status === 401 || res.status === 403) {
+      const e = new Error("Sesja odrzucona lub brak dostępu (wygasłe cookie albo konto prywatne).");
+      e.status = 403; throw e;
+    }
+    if (!res.ok) break;
+    const j = await res.json().catch(() => null);
+    const names = usersFromResponse(j);
+    if (!names.length) break;
+    for (const n of names) out.push(n);
+    if (!j.next_max_id) break;
+    maxId = j.next_max_id; pages++;
+    await sleep(700); // delikatnie, by nie wywołać limitów
+  }
+  return { ok: true, username: user.username || username, type: path, count: out.length, users: out.slice(0, cap), truncated: out.length >= cap };
 }
 
 /* ------------------------------ Normalizacja ----------------------------- */
@@ -274,6 +326,21 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  if (u.pathname === "/api/list") {
+    const username = (u.searchParams.get("username") || "").trim();
+    const type = u.searchParams.get("type") === "following" ? "following" : "followers";
+    const limit = parseInt(u.searchParams.get("limit"), 10) || 300;
+    const session = req.headers["x-ig-session"];
+    if (!username) return sendJson(res, 400, { ok: false, error: "Brak parametru username." });
+    if (!session) return sendJson(res, 401, { ok: false, error: "Brak sesji IG. Ustaw cookie sessionid." });
+    try {
+      const data = await fetchFriendList(username, type, session, limit);
+      return sendJson(res, 200, data);
+    } catch (e) {
+      return sendJson(res, e.status || 502, { ok: false, error: e.message });
+    }
+  }
+
   const entry = STATIC[u.pathname];
   if (entry) return serveStatic(res, entry);
 
@@ -288,4 +355,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { server, buildPayload, estimateAudience, normalizePosts, collectConnections };
+module.exports = { server, buildPayload, estimateAudience, normalizePosts, collectConnections, usersFromResponse };

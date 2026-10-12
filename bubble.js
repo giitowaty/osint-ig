@@ -136,9 +136,18 @@ window.OsintBubble = (function () {
       <details class="b-paste">
         <summary>Wklej listę kont (np. obserwujących / obserwowanych)</summary>
         <div class="b-paste-body">
-          <select id="b-acc">${opts}</select>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <select id="b-acc">${opts}</select>
+            <select id="b-type">
+              <option value="followers">Obserwujący</option>
+              <option value="following">Obserwowani</option>
+            </select>
+          </div>
           <textarea id="b-text" rows="4" placeholder="Wklej nazwy kont — po spacji, przecinku lub w nowych liniach. @ opcjonalne."></textarea>
-          <button type="button" class="btn-ghost" id="b-apply">Zastosuj do wybranego konta</button>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button type="button" class="btn-ghost" id="b-apply">Zastosuj do wybranego konta</button>
+            <button type="button" class="btn-ghost" id="b-fetch">⤓ Pobierz z sesji IG</button>
+          </div>
         </div>
       </details>` : ""}
       ${status ? `<p class="muted" style="margin:8px 2px">${esc(status)}</p>` : ""}
@@ -157,8 +166,23 @@ window.OsintBubble = (function () {
     if (apply) apply.addEventListener("click", () => {
       setPasted(host.querySelector("#b-acc").value, host.querySelector("#b-text").value);
     });
+    const fetchBtn = host.querySelector("#b-fetch");
+    if (fetchBtn) fetchBtn.addEventListener("click", async () => {
+      if (!window.OsintSession || !window.OsintSession.active()) {
+        status = "Najpierw ustaw sesję IG (panel 🔐 poniżej)."; render(); return;
+      }
+      const uu = host.querySelector("#b-acc").value;
+      const tt = host.querySelector("#b-type").value;
+      status = `Pobieram listę (${tt === "followers" ? "obserwujący" : "obserwowani"}) dla @${uu}…`; render();
+      try {
+        const r = await window.OsintSession.fetchList(uu, tt);
+        setPasted(uu, r.users.join("\n"));
+      } catch (e) { status = `Nie udało się pobrać: ${e.message}`; render(); }
+    });
+
     const pasteBody = host.querySelector(".b-paste-body");
     if (pasteBody && window.OsintCollector) pasteBody.appendChild(window.OsintCollector.helpNode());
+    if (pasteBody && window.OsintSession) pasteBody.appendChild(window.OsintSession.settingsNode());
 
     draw(host.querySelector("#b-canvas"));
   }

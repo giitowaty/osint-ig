@@ -8,7 +8,7 @@ const { guessGender } = require("./names");
 const {
   classifyTopics, commentSentiment, scoreComment, deriveInterests, classifyAccount,
 } = require("./content");
-const { buildPayload, collectConnections } = require("./server");
+const { buildPayload, collectConnections, usersFromResponse } = require("./server");
 
 let passed = 0;
 function ok(name, fn) {
@@ -148,6 +148,15 @@ ok("collectConnections zbiera oznaczenia i @wzmianki, sortuje, pomija własne", 
   assert.strictEqual(map["brand_b"], 1);
   assert.ok(!("jan_kowalski" in map));           // własne konto pominięte
   assert.strictEqual(conns[0].username, "brand_a"); // posortowane malejąco
+});
+
+// --- sesja: parsowanie odpowiedzi friendships ---
+ok("usersFromResponse wyłuskuje nazwy, odporne na śmieci", () => {
+  assert.deepStrictEqual(
+    usersFromResponse({ users: [{ username: "a" }, { username: "b" }, { foo: 1 }, null] }),
+    ["a", "b"]);
+  assert.deepStrictEqual(usersFromResponse(null), []);
+  assert.deepStrictEqual(usersFromResponse({}), []);
 });
 
 // --- payload / audience ---
