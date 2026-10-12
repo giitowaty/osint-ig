@@ -419,6 +419,9 @@ body {
 .vt.active { color: #fff; background: linear-gradient(135deg, var(--accent-2), var(--accent)); }
 .net-panel { background: var(--bg-elev); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
 .net-panel-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; }
+.net-auto { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; color: var(--text-dim); cursor: pointer; }
+.net-auto input { width: auto; cursor: pointer; }
+.net-auto:has(input:disabled) { opacity: 0.55; cursor: not-allowed; }
 
 /* ---------- Graf powiązań ---------- */
 .g-form { display: flex; gap: 10px; margin: 0 0 12px; }

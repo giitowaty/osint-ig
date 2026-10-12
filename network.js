@@ -11,8 +11,24 @@ window.OsintNetwork = (function () {
   const SVGNS = "http://www.w3.org/2000/svg";
   const W = 760, H = 500;
 
+  const AUTO_KEY = "osint-ig-autofetch";
   let host = null, fetchFn = null, status = "", view = "graf";
   const accounts = new Map(); // username -> { connections:[{username,count}], following:[], followers:[] }
+
+  const autoOn = () => { try { return localStorage.getItem(AUTO_KEY) === "1"; } catch { return false; } };
+  const setAuto = (v) => { try { localStorage.setItem(AUTO_KEY, v ? "1" : "0"); } catch {} };
+  const sessionReady = () => !!(window.OsintSession && window.OsintSession.active());
+
+  // Pobiera obie listy (obserwujący + obserwowani) danego konta z sesji IG.
+  async function autoFetchFor(u) {
+    if (!sessionReady()) return;
+    for (const type of ["followers", "following"]) {
+      try {
+        const r = await window.OsintSession.fetchList(u, type);
+        const acc = accounts.get(u); if (acc) acc[type] = r.users || [];
+      } catch (e) { status = `Auto-pobieranie @${u}: ${e.message}`; }
+    }
+  }
 
   function esc(s) {
     return String(s ?? "").replace(/[&<>"']/g, (c) => ({
@@ -41,11 +57,19 @@ window.OsintNetwork = (function () {
     if (!u) return;
     if (accounts.has(u)) { status = `@${u} jest już w sieci.`; render(); return; }
     status = `Pobieram @${u}…`; render();
+    let added = u;
     try {
       const data = await fetchFn(u);
-      accounts.set(data.profile.username || u, newAcc(data.connections));
+      added = data.profile.username || u;
+      accounts.set(added, newAcc(data.connections));
       status = "";
-    } catch (e) { status = `Nie udało się dodać @${u}: ${e.message}`; }
+    } catch (e) { status = `Nie udało się dodać @${u}: ${e.message}`; render(); return; }
+    // Auto-pobieranie list z sesji (jeśli włączone).
+    if (autoOn() && sessionReady()) {
+      status = `Auto-pobieram listy @${added}…`; render();
+      await autoFetchFor(added);
+      status = `Dodano @${added} i pobrano listy.`;
+    }
     render();
   }
   function removeAccount(u) { accounts.delete(norm(u)); render(); }
@@ -157,6 +181,10 @@ window.OsintNetwork = (function () {
           <button type="button" class="btn-ghost" id="net-batch">⤓ Pobierz listy wszystkich kont z sesji IG</button>
           ${sessActive && window.OsintSession.account() ? `<span class="sess-badge">sesja: @${esc(window.OsintSession.account())}</span>` : ""}
         </div>
+        <label class="net-auto" title="${sessActive ? "" : "Najpierw ustaw sesję IG poniżej"}">
+          <input type="checkbox" id="net-auto" ${autoOn() ? "checked" : ""} ${sessActive ? "" : "disabled"} />
+          Automatycznie pobieraj listy z sesji przy dodawaniu konta
+        </label>
       </div>
       <details class="b-paste">
         <summary>Wklej / pobierz listę znajomych dla jednego konta</summary>
@@ -187,6 +215,8 @@ window.OsintNetwork = (function () {
     host.querySelectorAll(".vt").forEach((b) => b.addEventListener("click", () => { view = b.dataset.view; render(); }));
     const batch = host.querySelector("#net-batch");
     if (batch) batch.addEventListener("click", batchFetch);
+    const autoBox = host.querySelector("#net-auto");
+    if (autoBox) autoBox.addEventListener("change", () => setAuto(autoBox.checked));
     const apply = host.querySelector("#net-apply");
     if (apply) apply.addEventListener("click", () =>
       setList(host.querySelector("#net-acc").value, host.querySelector("#net-type").value, host.querySelector("#net-text").value));
