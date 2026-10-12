@@ -29,6 +29,14 @@ body {
 /* Input panel */
 .input-panel { position: sticky; top: 24px; }
 .input-panel label { display: block; font-size: 12px; font-weight: 600; color: var(--dim); margin-bottom: 8px; }
+.fetch-row { display: flex; align-items: center; gap: 6px; background: var(--elev); border: 1px solid var(--edge); border-radius: 11px; padding: 4px 4px 4px 12px; }
+.fetch-row:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(225,48,108,.15); }
+.fetch-row .at { color: var(--dim); font-size: 15px; }
+.fetch-row input { flex: 1; min-width: 0; background: transparent; border: none; outline: none; color: var(--text); font-size: 15px; padding: 8px 2px; }
+.fetch-btn { flex: 0 0 auto; padding: 9px 16px; border-radius: 9px; }
+.divider { text-align: center; color: var(--dim); font-size: 11px; margin: 14px 0; position: relative; }
+.divider::before, .divider::after { content: ""; position: absolute; top: 50%; width: 28%; height: 1px; background: var(--edge); }
+.divider::before { left: 0; } .divider::after { right: 0; }
 #input {
   width: 100%; background: var(--elev); border: 1px solid var(--edge); border-radius: 12px;
   color: #cfe0ef; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;

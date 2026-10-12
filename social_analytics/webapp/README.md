@@ -22,7 +22,14 @@ Otwórz <http://127.0.0.1:8100>. Kliknij „Przykład”, potem „Analizuj”.
 |----------|--------|------|
 | `/` | GET | dashboard (HTML) |
 | `/api/sample` | GET | przykładowe dane do UI |
+| `/api/fetch?username=` | GET | pobiera publiczny profil z IG (best-effort) i zwraca `{profile, posts}` |
 | `/api/analyze` | POST | uruchamia potok na przesłanym JSON-ie |
+
+W UI wpisujesz nazwę profilu w polu **„Profil do sprawdzenia”** i klikasz
+**„Pobierz”** — dashboard zaciąga publiczne dane (`/api/fetch`) i od razu analizuje.
+Pobieranie jest **best-effort** (Instagram bywa za logowaniem / limituje); przy
+niepowodzeniu wkleisz dane JSON ręcznie. To warstwa wygody dashboardu — rdzeń
+silnika `social_analytics` nadal działa wyłącznie na danych JSON.
 
 `POST /api/analyze` przyjmuje surowe dane (`{"profile":…,"posts":…}` lub listę,
 ewentualnie `{"data": …}`) i zwraca wynik `pipeline.analyze()`:

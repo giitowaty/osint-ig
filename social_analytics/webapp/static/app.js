@@ -28,6 +28,23 @@ async function loadSample() {
   } catch (e) { setStatus("Nie udało się wczytać przykładu: " + e.message, "err"); }
 }
 
+async function fetchProfile() {
+  const username = $("username").value.trim().replace(/^@+/, "");
+  if (!username) { setStatus("Wpisz nazwę profilu.", "err"); return; }
+  setStatus(`Pobieram @${username} z Instagrama…`);
+  $("fetch").disabled = true;
+  try {
+    const r = await fetch(`/api/fetch?username=${encodeURIComponent(username)}`);
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
+    $("input").value = JSON.stringify(data, null, 2);
+    setStatus("Pobrano ✓ — analizuję…", "ok");
+    await runAnalyze();
+  } catch (e) {
+    setStatus("Nie udało się pobrać: " + e.message + " — możesz wkleić dane ręcznie.", "err");
+  } finally { $("fetch").disabled = false; }
+}
+
 async function runAnalyze() {
   let payload;
   try {
@@ -237,4 +254,6 @@ function enableDrag(g, n, onMove) {
 
 $("analyze").addEventListener("click", runAnalyze);
 $("load-sample").addEventListener("click", loadSample);
+$("fetch").addEventListener("click", fetchProfile);
+$("username").addEventListener("keydown", (e) => { if (e.key === "Enter") fetchProfile(); });
 loadSample();

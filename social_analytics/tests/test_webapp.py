@@ -81,6 +81,35 @@ class WebAppTest(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertIn("renderGraph", r.text)
 
+    def test_fetch_requires_username(self) -> None:
+        # pusty username -> 400 (zanim ruszy jakiekolwiek zapytanie sieciowe)
+        r = self.client.get("/api/fetch?username=")
+        self.assertEqual(r.status_code, 400)
+
+    def test_normalize_ig_user(self) -> None:
+        from social_analytics.webapp.server import _normalize_ig_user
+        user = {
+            "username": "demo", "full_name": "Demo", "is_verified": True,
+            "category_name": "Photographer",
+            "edge_followed_by": {"count": 500}, "edge_follow": {"count": 100},
+            "edge_owner_to_timeline_media": {"count": 1, "edges": [
+                {"node": {
+                    "__typename": "GraphVideo", "shortcode": "AAA",
+                    "edge_liked_by": {"count": 42}, "edge_media_to_comment": {"count": 7},
+                    "edge_media_to_caption": {"edges": [{"node": {"text": "hi #travel @bob"}}]},
+                    "accessibility_caption": "a photo",
+                    "edge_media_to_tagged_user": {"edges": [{"node": {"user": {"username": "brand"}}}]},
+                }},
+            ]},
+        }
+        out = _normalize_ig_user(user)
+        self.assertEqual(out["profile"]["username"], "demo")
+        self.assertEqual(out["profile"]["followers"], 500)
+        self.assertEqual(out["posts"][0]["type"], "video")
+        self.assertEqual(out["posts"][0]["likes"], 42)
+        self.assertEqual(out["posts"][0]["tagged"], ["brand"])
+        self.assertIn("#travel", out["posts"][0]["caption"])
+
 
 if __name__ == "__main__":
     unittest.main()

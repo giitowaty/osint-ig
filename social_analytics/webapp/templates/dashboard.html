@@ -18,6 +18,14 @@
   <main class="wrap">
     <!-- Panel wejścia -->
     <section class="panel input-panel">
+      <label for="username">Profil do sprawdzenia</label>
+      <div class="fetch-row">
+        <span class="at">@</span>
+        <input id="username" type="text" placeholder="np. natgeo" spellcheck="false" />
+        <button id="fetch" class="btn-primary fetch-btn">Pobierz</button>
+      </div>
+      <div class="divider">albo wklej dane JSON ręcznie</div>
+
       <label for="input">Dane JSON (profil + posty)</label>
       <textarea id="input" spellcheck="false" placeholder='{"profile": {...}, "posts": [...]}'></textarea>
       <div class="actions">
