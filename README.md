@@ -1,9 +1,10 @@
-# OSINT-IG — porównywarka profili Instagram
+# OSINT-IG — analiza profilu Instagram
 
-Prosta strona (czysty HTML/CSS/JS, bez backendu) do zestawiania dwóch profili
-Instagram obok siebie i porównywania ich statystyk: obserwujący, obserwowani,
-liczba postów oraz ratio (obserwujący ÷ obserwowani). Metryka, w której dany
-profil wygrywa, jest podświetlana na zielono (▲).
+Prosta strona (czysty HTML/CSS/JS, bez backendu) do analizy pojedynczego profilu
+Instagram. Pokazuje statystyki (obserwujący, obserwowani, liczba postów, ratio
+obserwujący ÷ obserwowani) oraz sekcję **Analiza** z wnioskami wyciąganymi z
+danych: skala konta, interpretacja ratio, aktywność, orientacyjny zasięg na post,
+status (zweryfikowany / prywatny) i obecność bio/linku.
 
 ## Jak uruchomić
 
@@ -27,17 +28,17 @@ zadziała).
 
 To rozwiązanie **best-effort** — proxy bywają zawodne, a Instagram często
 odpowiada stroną logowania zamiast danymi. Dlatego gdy automatyczne pobranie
-się nie uda, karta profilu przechodzi w **tryb ręczny**: pola statystyk stają
+się nie uda, karta profilu przechodzi w **tryb ręczny**: kafelki statystyk stają
 się edytowalne i możesz wpisać wartości samodzielnie (np. odczytane z profilu).
-Porównanie i podświetlenie zwycięzcy aktualizują się na żywo podczas edycji.
+Statystyki i sekcja analizy przeliczają się na żywo podczas edycji.
 
 ## Pliki
 
-| Plik         | Rola                                          |
-|--------------|-----------------------------------------------|
-| `index.html` | struktura strony                              |
-| `styles.css` | wygląd (ciemny motyw)                          |
-| `app.js`     | pobieranie danych, fallback ręczny, porównanie |
+| Plik         | Rola                                        |
+|--------------|---------------------------------------------|
+| `index.html` | struktura strony                            |
+| `styles.css` | wygląd (ciemny motyw)                        |
+| `app.js`     | pobieranie danych, fallback ręczny, analiza |
 
 ## Uwagi / ograniczenia
 
