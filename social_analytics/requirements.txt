@@ -1,0 +1,4 @@
+# Zależności runtime modułu social_analytics.
+# metrics i nlp_pipeline działają na samej bibliotece standardowej.
+# graph_schema wymaga networkx:
+networkx>=3.0

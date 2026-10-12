@@ -1,0 +1,31 @@
+{
+  "profile": {
+    "username": "demo_explorer",
+    "full_name": "Demo Explorer",
+    "followers": 12000,
+    "following": 300,
+    "posts": 2,
+    "category": "Travel Blogger",
+    "verified": false
+  },
+  "posts": [
+    {
+      "shortcode": "AAA111",
+      "caption": "Sunrise over the mountains 🏔️ #travel #nature #hiking with @mountain_guide",
+      "alt": "A hiker watching the sunrise in the mountains",
+      "likes": 540,
+      "comments": 32,
+      "type": "image",
+      "tagged": ["gear_brand"]
+    },
+    {
+      "shortcode": "BBB222",
+      "caption": "Street food tour in the old town 🍜 #food #foodie #travel @local_bistro",
+      "alt": "Bowl of noodles at a street stall",
+      "likes": 610,
+      "comments": 48,
+      "type": "carousel",
+      "tagged": ["local_bistro"]
+    }
+  ]
+}
