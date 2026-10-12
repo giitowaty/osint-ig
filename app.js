@@ -230,6 +230,42 @@ function summaryHtml(s) {
     ${tags}`;
 }
 
+function classificationHtml(c) {
+  if (!c) return "";
+  const conf = Math.round((c.confidence || 0) * 100);
+  const chips = c.labels
+    .map((l) => `<span class="class-chip" title="${escapeHtml(l.reason)}">${escapeHtml(l.label)}</span>`)
+    .join("");
+  const reasons = c.labels
+    .map((l) => `<li><span class="ins-icon">•</span><span><strong>${escapeHtml(l.label)}</strong> — ${escapeHtml(l.reason)}</span></li>`)
+    .join("");
+  return `
+    <h2 class="section-title">Klasyfikacja konta</h2>
+    <div class="class-primary">
+      <span class="class-badge">${escapeHtml(c.primary)}</span>
+      <span class="muted">pewność ~${conf}%</span>
+    </div>
+    <div class="class-chips">${chips}</div>
+    <ul class="insights" style="margin-top:12px">${reasons}</ul>`;
+}
+
+function interestsHtml(list) {
+  if (!list || !list.length) {
+    return `<h2 class="section-title">Zainteresowania</h2>
+      <p class="muted">Za mało opisów/hashtagów, by wyznaczyć zainteresowania.</p>`;
+  }
+  const max = list[0].weight || 1;
+  const chips = list.map((i) => {
+    const scale = 0.85 + 0.6 * (i.weight / max); // 0.85–1.45em
+    return `<span class="interest ${i.kind}" style="font-size:${scale.toFixed(2)}em" title="waga ${i.weight}">${escapeHtml(i.label)}</span>`;
+  }).join("");
+  return `<h2 class="section-title">Zainteresowania</h2>
+    <p class="muted" style="margin:0 2px 10px">Z tego, co konto publikuje i udostępnia: kategorie, hashtagi oraz
+      oznaczane/wzmiankowane konta (<span class="interest konto" style="font-size:.85em">@collab</span>).
+      Im większy napis, tym silniejszy motyw. Relacje (stories) nie są dostępne publicznie.</p>
+    <div class="interests">${chips}</div>`;
+}
+
 function topicsHtml(t) {
   if (!t || !t.topics || !t.topics.length) {
     return `<h2 class="section-title">Tematyka treści</h2>
@@ -302,9 +338,12 @@ function exportText(c) {
   L.push(`OSINT-IG — analiza @${p.username}`);
   if (p.fullName) L.push(`Nazwa: ${p.fullName}`);
   L.push(`Status: ${p.verified ? "zweryfikowany" : "niezweryfikowany"}, ${p.private ? "prywatny" : "publiczny"}`);
+  if (p.category) L.push(`Kategoria IG: ${p.category}`);
   L.push(`Obserwujący: ${formatNumber(p.followers)} | Obserwuje: ${formatNumber(p.following)} | Posty: ${formatNumber(p.posts)}`);
   const r = ratio(p);
   if (r !== null) L.push(`Ratio: ${r.toFixed(2)}`);
+  const cls = c.content && c.content.classification;
+  if (cls) L.push(`Klasyfikacja: ${cls.primary} [${cls.labels.map((l) => l.label).join(", ")}]`);
   if (s) {
     L.push("");
     L.push(`Treści (${s.count} ost. postów): ${s.typeCounts.image} zdjęć, ${s.typeCounts.video} wideo, ${s.typeCounts.carousel} karuzel`);
@@ -315,6 +354,9 @@ function exportText(c) {
   if (content && content.topics && content.topics.topics && content.topics.topics.length) {
     L.push("");
     L.push("Tematyka: " + content.topics.topics.map((t) => `${t.category} ${Math.round(t.share * 100)}%`).join(", "));
+  }
+  if (content && content.interests && content.interests.length) {
+    L.push("Zainteresowania: " + content.interests.map((i) => i.label).join(", "));
   }
   if (content && content.sentiment && content.sentiment.available) {
     const s = content.sentiment;
@@ -352,34 +394,69 @@ function render(data) {
   const link = p.externalUrl
     ? `<a class="ext-link" href="${escapeHtml(p.externalUrl)}" target="_blank" rel="noopener">${escapeHtml(p.externalUrl)}</a>`
     : "";
+  const catChip = p.category ? `<span class="cat-chip">${escapeHtml(p.category)}</span>` : "";
+  const ct = current.content;
 
-  resultEl.innerHTML = `
-    <article class="card">
-      ${manualNote}
-      <div class="card-head">
-        ${avatar}
-        <div class="names">
-          <div class="handle">@${escapeHtml(p.username)} ${badges}</div>
-          ${p.fullName ? `<div class="fullname">${escapeHtml(p.fullName)}</div>` : ""}
-        </div>
-        ${!p.manual ? `<div class="export">
-          <button type="button" class="btn-ghost" id="copy-btn">Kopiuj</button>
-          <button type="button" class="btn-ghost" id="json-btn">JSON</button>
-          <button type="button" class="btn-ghost" id="print-btn">Drukuj / PDF</button>
-        </div>` : ""}
+  const head = `
+    ${manualNote}
+    <div class="card-head">
+      ${avatar}
+      <div class="names">
+        <div class="handle">@${escapeHtml(p.username)} ${badges}</div>
+        ${p.fullName ? `<div class="fullname">${escapeHtml(p.fullName)} ${catChip}</div>` : (catChip ? `<div class="fullname">${catChip}</div>` : "")}
       </div>
-      ${p.bio ? `<p class="bio">${escapeHtml(p.bio)}</p>` : ""}
-      ${link}
+      ${!p.manual ? `<div class="export">
+        <button type="button" class="btn-ghost" id="copy-btn">Kopiuj</button>
+        <button type="button" class="btn-ghost" id="json-btn">JSON</button>
+        <button type="button" class="btn-ghost" id="print-btn">Drukuj / PDF</button>
+      </div>` : ""}
+    </div>
+    ${p.bio ? `<p class="bio">${escapeHtml(p.bio)}</p>` : ""}
+    ${link}`;
+
+  let body;
+  if (p.manual) {
+    // Tryb ręczny: bez zakładek, tylko edytowalne kafelki + analiza.
+    body = `
       <div class="tiles">${tilesHtml(p)}</div>
       <h2 class="section-title">Analiza</h2>
-      <div id="insights-wrap">${insightsHtml(p)}</div>
-      ${postsHtml(current.posts)}
-      ${summaryHtml(current.summary)}
-      ${current.content ? topicsHtml(current.content.topics) : ""}
-      ${current.content ? sentimentHtml(current.content.sentiment) : ""}
-      ${audienceHtml(current.audience)}
-    </article>`;
+      <div id="insights-wrap">${insightsHtml(p)}</div>`;
+  } else {
+    body = `
+      <div class="tabs" role="tablist">
+        <button class="tab active" data-tab="przeglad" role="tab">Przegląd</button>
+        <button class="tab" data-tab="tresci" role="tab">Treści</button>
+        <button class="tab" data-tab="odbiorcy" role="tab">Odbiorcy</button>
+      </div>
+      <section class="tab-panel active" data-panel="przeglad">
+        <div class="tiles">${tilesHtml(p)}</div>
+        <h2 class="section-title">Analiza</h2>
+        <div id="insights-wrap">${insightsHtml(p)}</div>
+        ${ct ? classificationHtml(ct.classification) : ""}
+      </section>
+      <section class="tab-panel" data-panel="tresci">
+        ${postsHtml(current.posts)}
+        ${summaryHtml(current.summary)}
+        ${ct ? topicsHtml(ct.topics) : ""}
+        ${ct ? interestsHtml(ct.interests) : ""}
+      </section>
+      <section class="tab-panel" data-panel="odbiorcy">
+        ${ct ? sentimentHtml(ct.sentiment) : ""}
+        ${audienceHtml(current.audience)}
+      </section>`;
+  }
+
+  resultEl.innerHTML = `<article class="card">${head}${body}</article>`;
   resultEl.hidden = false;
+
+  // Przełączanie zakładek.
+  const tabs = resultEl.querySelectorAll(".tab");
+  tabs.forEach((tab) => tab.addEventListener("click", () => {
+    tabs.forEach((t) => t.classList.remove("active"));
+    tab.classList.add("active");
+    resultEl.querySelectorAll(".tab-panel").forEach((pan) =>
+      pan.classList.toggle("active", pan.dataset.panel === tab.dataset.tab));
+  }));
 
   // Tryb ręczny: edycja kafelków → przelicz ratio i analizę.
   resultEl.querySelectorAll("input.tile-input").forEach((inp) => {

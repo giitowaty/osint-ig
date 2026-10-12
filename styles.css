@@ -332,6 +332,53 @@ body {
 .muted { color: var(--text-dim); font-size: 13px; }
 .insights strong { color: var(--text); }
 
+/* ---------- Tabs ---------- */
+.tabs {
+  display: flex; gap: 4px; margin: 20px 0 4px;
+  border-bottom: 1px solid var(--border);
+}
+.tab {
+  background: none; border: none; cursor: pointer;
+  color: var(--text-dim); font-size: 14px; font-weight: 600;
+  padding: 10px 16px; border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--text); border-bottom-color: var(--accent); }
+.tab-panel { display: none; padding-top: 6px; }
+.tab-panel.active { display: block; }
+
+/* ---------- Category chip ---------- */
+.cat-chip {
+  display: inline-block; font-size: 11px; font-weight: 700;
+  color: var(--accent); background: rgba(225, 48, 108, 0.12);
+  border: 1px solid rgba(225, 48, 108, 0.3); border-radius: 999px;
+  padding: 1px 8px; margin-left: 4px; vertical-align: middle;
+}
+
+/* ---------- Classification ---------- */
+.class-primary { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.class-badge {
+  font-size: 15px; font-weight: 800; color: #fff;
+  background: linear-gradient(135deg, var(--accent-2), var(--accent));
+  border-radius: 10px; padding: 6px 14px;
+}
+.class-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.class-chip {
+  font-size: 12px; font-weight: 600; color: var(--text);
+  background: var(--bg-elev); border: 1px solid var(--border);
+  border-radius: 999px; padding: 4px 11px; cursor: help;
+}
+
+/* ---------- Interests ---------- */
+.interests { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: baseline; }
+.interest {
+  font-weight: 600; line-height: 1.2; border-radius: 999px;
+  padding: 3px 11px; border: 1px solid var(--border);
+}
+.interest.kategoria { color: var(--accent); background: rgba(225, 48, 108, 0.12); border-color: rgba(225, 48, 108, 0.3); }
+.interest.hashtag { color: var(--text-dim); background: var(--bg-elev); }
+.interest.konto { color: #3897f0; background: rgba(56, 151, 240, 0.12); border-color: rgba(56, 151, 240, 0.35); }
+
 /* ---------- Topics ---------- */
 .topics { display: flex; flex-direction: column; gap: 9px; }
 .topic-row { display: grid; grid-template-columns: 150px 1fr 42px; align-items: center; gap: 10px; }
@@ -390,7 +437,8 @@ body {
 /* ---------- Print / PDF ---------- */
 @media print {
   body { background: #fff; color: #000; }
-  .topbar, .search-panel, .history, .status, .footer, .export { display: none !important; }
+  .topbar, .search-panel, .history, .status, .footer, .export, .tabs { display: none !important; }
+  .tab-panel { display: block !important; } /* w PDF pokaż wszystkie zakładki */
   .card { border-color: #ccc; box-shadow: none; }
   .post-meta { color: #000; background: none; position: static; padding: 2px; }
   .section-title, .tile-label, .bio, .muted, .gender-legend { color: #333; }

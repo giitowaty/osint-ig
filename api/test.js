@@ -5,7 +5,9 @@
 
 const assert = require("assert");
 const { guessGender } = require("./names");
-const { classifyTopics, commentSentiment, scoreComment } = require("./content");
+const {
+  classifyTopics, commentSentiment, scoreComment, deriveInterests, classifyAccount,
+} = require("./content");
 const { buildPayload } = require("./server");
 
 let passed = 0;
@@ -82,15 +84,55 @@ ok("agregacja wydźwięku", () => {
 ok("brak komentarzy -> unavailable", () =>
   assert.strictEqual(commentSentiment([]).available, false));
 
+// --- content: zainteresowania (konta oznaczane/wzmiankowane) ---
+ok("zainteresowania zawierają oznaczone konta i hashtagi", () => {
+  const posts = [
+    { caption: "Trening z @fit_coach #gym #workout", alt: "", tagged: ["nike"] },
+    { caption: "Kolejny trening 💪 @fit_coach #gym", alt: "", tagged: ["nike"] },
+  ];
+  const topics = classifyTopics(posts);
+  const interests = deriveInterests(posts, topics, "jan_kowalski");
+  const labels = interests.map((i) => i.label);
+  assert.ok(labels.includes("@fit_coach"), "oczek. @fit_coach w " + labels.join(","));
+  assert.ok(labels.includes("@nike"), "oczek. @nike (oznaczone) w " + labels.join(","));
+  assert.ok(labels.includes("#workout"), "oczek. #workout w " + labels.join(","));
+});
+ok("zainteresowania pomijają własne konto", () => {
+  const posts = [{ caption: "selfie @jan_kowalski @ktos", alt: "", tagged: [] }];
+  const interests = deriveInterests(posts, classifyTopics(posts), "jan_kowalski");
+  assert.ok(!interests.some((i) => i.label === "@jan_kowalski"));
+});
+
+// --- content: klasyfikacja konta ---
+ok("klasyfikacja z kategorii IG", () => {
+  const c = classifyAccount(
+    { category: "Photographer", followers: 5000, following: 300, verified: false, private: false },
+    null, []);
+  assert.strictEqual(c.primary, "Fotograf");
+});
+ok("klasyfikacja influencera z sygnałów", () => {
+  const c = classifyAccount(
+    { category: "", followers: 500000, following: 200, verified: true, private: false },
+    { topics: [{ category: "Moda", share: 0.3 }] }, []);
+  assert.ok(/Influencer/.test(c.primary), "oczek. Influencer, mamy: " + c.primary);
+});
+ok("klasyfikacja konta prywatnego", () => {
+  const c = classifyAccount(
+    { category: "", followers: 300, following: 400, verified: false, private: true }, null, []);
+  assert.strictEqual(c.primary, "Konto prywatne");
+});
+
 // --- payload / audience ---
 const mockUser = {
   username: "demo",
   full_name: "Demo Konto",
-  biography: "Testowe bio #foto #podróże",
+  biography: "Testowe bio #foto #podróże @partner_brand",
   external_url: "https://example.com",
   profile_pic_url_hd: "https://img/pic.jpg",
   is_verified: true,
   is_private: false,
+  category_name: "Photographer",
+  is_professional_account: true,
   edge_followed_by: { count: 12000 },
   edge_follow: { count: 300 },
   edge_owner_to_timeline_media: {
@@ -100,8 +142,9 @@ const mockUser = {
         __typename: "GraphImage", shortcode: "AAA", thumbnail_src: "t1",
         is_video: false, edge_liked_by: { count: 500 },
         edge_media_to_comment: { count: 20 },
-        edge_media_to_caption: { edges: [{ node: { text: "Opis #foto #lato" } }] },
+        edge_media_to_caption: { edges: [{ node: { text: "Opis #foto #lato @partner_brand" } }] },
         accessibility_caption: "Zdjęcie plaży",
+        edge_media_to_tagged_user: { edges: [{ node: { user: { username: "canon_polska" } } }] },
         edge_media_preview_comment: { edges: [
           { node: { text: "Mega piękne! 😍🔥", owner: { username: "anna_nowak", full_name: "Anna Nowak" } } },
           { node: { text: "no słabe 👎", owner: { username: "piotr99", full_name: "Piotr" } } },
@@ -148,6 +191,13 @@ ok("payload zawiera analizę treści", () => {
   assert.strictEqual(payload.content.sentiment.available, true);
   assert.strictEqual(payload.content.sentiment.positive, 1); // "Mega piękne 😍🔥"
   assert.strictEqual(payload.content.sentiment.negative, 1); // "no słabe 👎"
+});
+ok("payload: kategoria, klasyfikacja i zainteresowania", () => {
+  assert.strictEqual(payload.profile.category, "Photographer");
+  assert.strictEqual(payload.content.classification.primary, "Fotograf");
+  const labels = payload.content.interests.map((i) => i.label);
+  assert.ok(labels.includes("@partner_brand"), "oczek. @partner_brand (wzmianka) w " + labels.join(","));
+  assert.ok(labels.includes("@canon_polska"), "oczek. @canon_polska (oznaczone) w " + labels.join(","));
 });
 
 console.log(`\n${passed} testów przeszło ✓`);

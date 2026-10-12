@@ -15,7 +15,9 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const { guessGender } = require("./names");
-const { classifyTopics, commentSentiment } = require("./content");
+const {
+  classifyTopics, commentSentiment, deriveInterests, classifyAccount,
+} = require("./content");
 
 const ROOT = path.join(__dirname, "..");
 const PORT = process.env.PORT || 8000;
@@ -89,6 +91,17 @@ function normalizePosts(user) {
       (node.edge_liked_by && node.edge_liked_by.count) ??
       (node.edge_media_preview_like && node.edge_media_preview_like.count) ??
       null;
+    // Konta oznaczone na zdjęciu + współautorzy (collab/regram).
+    const tagged = [];
+    const taggedEdges =
+      (node.edge_media_to_tagged_user && node.edge_media_to_tagged_user.edges) || [];
+    for (const e of taggedEdges) {
+      const u = e.node && e.node.user;
+      if (u && u.username) tagged.push(u.username);
+    }
+    for (const c of node.coauthor_producers || []) {
+      if (c && c.username) tagged.push(c.username);
+    }
     return {
       shortcode: node.shortcode || "",
       thumbnail: node.thumbnail_src || node.display_url || "",
@@ -98,6 +111,7 @@ function normalizePosts(user) {
       comments: node.edge_media_to_comment ? node.edge_media_to_comment.count : null,
       caption: caption || "",
       alt: node.accessibility_caption || "",
+      tagged,
     };
   });
 }
@@ -164,26 +178,34 @@ function estimateAudience(user) {
 function buildPayload(user, username) {
   const posts = normalizePosts(user);
   const comments = collectComments(user);
+  const profile = {
+    username: user.username || username,
+    fullName: user.full_name || "",
+    bio: user.biography || "",
+    externalUrl: user.external_url || "",
+    avatar: user.profile_pic_url_hd || user.profile_pic_url || "",
+    verified: !!user.is_verified,
+    private: !!user.is_private,
+    // Kategoria konta i flagi zawodowe/biznesowe nadawane w IG (autorytatywne).
+    category: user.category_name || user.business_category_name || "",
+    isBusiness: !!user.is_business_account,
+    isProfessional: !!user.is_professional_account,
+    followers: user.edge_followed_by ? user.edge_followed_by.count : null,
+    following: user.edge_follow ? user.edge_follow.count : null,
+    posts: user.edge_owner_to_timeline_media
+      ? user.edge_owner_to_timeline_media.count
+      : null,
+  };
+  const topics = classifyTopics(posts);
   return {
     ok: true,
-    profile: {
-      username: user.username || username,
-      fullName: user.full_name || "",
-      bio: user.biography || "",
-      externalUrl: user.external_url || "",
-      avatar: user.profile_pic_url_hd || user.profile_pic_url || "",
-      verified: !!user.is_verified,
-      private: !!user.is_private,
-      followers: user.edge_followed_by ? user.edge_followed_by.count : null,
-      following: user.edge_follow ? user.edge_follow.count : null,
-      posts: user.edge_owner_to_timeline_media
-        ? user.edge_owner_to_timeline_media.count
-        : null,
-    },
+    profile,
     posts,
     audience: estimateAudience(user),
     content: {
-      topics: classifyTopics(posts),
+      topics,
+      interests: deriveInterests(posts, topics, profile.username),
+      classification: classifyAccount(profile, topics, posts),
       sentiment: commentSentiment(comments),
     },
   };
