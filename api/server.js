@@ -30,8 +30,7 @@ const STATIC = {
   "/index.html": { file: "index.html", type: "text/html; charset=utf-8" },
   "/styles.css": { file: "styles.css", type: "text/css; charset=utf-8" },
   "/app.js": { file: "app.js", type: "application/javascript; charset=utf-8" },
-  "/graph.js": { file: "graph.js", type: "application/javascript; charset=utf-8" },
-  "/bubble.js": { file: "bubble.js", type: "application/javascript; charset=utf-8" },
+  "/network.js": { file: "network.js", type: "application/javascript; charset=utf-8" },
   "/collector.js": { file: "collector.js", type: "application/javascript; charset=utf-8" },
   "/session.js": { file: "session.js", type: "application/javascript; charset=utf-8" },
 };

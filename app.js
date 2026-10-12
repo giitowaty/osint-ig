@@ -437,8 +437,7 @@ function render(data) {
           <button class="navitem active" data-tab="przeglad" role="tab"><span class="ni">📊</span> Przegląd</button>
           <button class="navitem" data-tab="tresci" role="tab"><span class="ni">🖼️</span> Treści</button>
           <button class="navitem" data-tab="odbiorcy" role="tab"><span class="ni">👥</span> Odbiorcy</button>
-          <button class="navitem" data-tab="graf" role="tab"><span class="ni">🕸️</span> Graf</button>
-          <button class="navitem" data-tab="bable" role="tab"><span class="ni">🫧</span> Bąbelki</button>
+          <button class="navitem" data-tab="siec" role="tab"><span class="ni">🕸️</span> Sieć</button>
         </nav>
         <div class="panels">
           <section class="tab-panel active" data-panel="przeglad">
@@ -462,11 +461,8 @@ function render(data) {
               <div>${audienceHtml(current.audience)}</div>
             </div>
           </section>
-          <section class="tab-panel" data-panel="graf">
-            <div id="graph-host"></div>
-          </section>
-          <section class="tab-panel" data-panel="bable">
-            <div id="bubble-host"></div>
+          <section class="tab-panel" data-panel="siec">
+            <div id="network-host"></div>
           </section>
         </div>
       </div>`;
@@ -475,14 +471,10 @@ function render(data) {
   resultEl.innerHTML = `<article class="card">${head}${body}</article>`;
   resultEl.hidden = false;
 
-  // Graf powiązań i bubble map (seed = bieżący profil i jego powiązania).
-  if (!p.manual && window.OsintGraph) {
-    const gh = document.getElementById("graph-host");
-    if (gh) window.OsintGraph.init(gh, loadProfile, p.username, current.connections);
-  }
-  if (!p.manual && window.OsintBubble) {
-    const bh = document.getElementById("bubble-host");
-    if (bh) window.OsintBubble.init(bh, loadProfile, p.username, current.connections);
+  // Sieć powiązań (graf + bąbelki, seed = bieżący profil i jego powiązania).
+  if (!p.manual && window.OsintNetwork) {
+    const nh = document.getElementById("network-host");
+    if (nh) window.OsintNetwork.init(nh, loadProfile, p.username, current.connections);
   }
 
   // Przełączanie zakładek (boczna nawigacja).

@@ -41,14 +41,18 @@ zewnętrznych), który obchodzi CORS i dokłada nagłówek wymagany przez Instag
   próbki podglądowych komentarzy, na bazie leksykonu słów i emoji; z ogólnym
   tonem i przykładami.
 - **Płeć odbiorców (szacunek)** — patrz niżej.
-- **Graf powiązań** — interaktywna mapa sieci (SVG, własna symulacja sił): dodajesz
-  kolejne konta, a graf pokazuje powiązania między nimi (oznaczenia, współautorstwo
-  collab, @wzmianki). Konto wskazywane przez ≥2 analizowane profile jest
-  wyróżnione jako **wspólne (pośrednie) powiązanie**. Węzły można przeciągać.
-  Dla wybranego konta można też **wkleić ręcznie listę obserwujących /
-  obserwowanych** — wrysowują się jako krawędzie z rozróżnieniem kierunku
-  (niebieskie „obserwuje →”, zielone „obserwujący →”). Zebranie listy ułatwia
-  **bookmarklet** (patrz niżej).
+- **Sieć powiązań** (zakładka *Sieć*, `network.js`) — jedna wspólna lista kont
+  zasila dwa widoki przełączane jednym kliknięciem:
+  - **Graf** — interaktywna mapa sieci (SVG, własna symulacja sił); krawędzie to
+    oznaczenia/współautorstwo/@wzmianki oraz ręcznie wczytane listy
+    obserwujących/obserwowanych z rozróżnieniem kierunku (niebieskie „obserwuje →”,
+    zielone „obserwujący →”). Węzły można przeciągać.
+  - **Bąbelki** — pakowane koła powiązanych kont; wielkość = liczba wystąpień.
+
+  Konto wskazywane przez ≥2 profile jest w obu widokach wyróżnione jako
+  **wspólne (pośrednie) powiązanie**. **Panel sterowania** nad widokiem pozwala
+  jednym przyciskiem **pobrać listy obserwujących/obserwowanych wszystkich kont
+  z sesji IG** (patrz niżej) albo wkleić/pobrać listę dla pojedynczego konta.
 - **Auto-pobieranie listy przez sesję IG (opcjonalne)** — w panelu wklejania
   możesz podać własny `sessionid` (cookie z Twojej zalogowanej przeglądarki);
   wtedy przycisk „⤓ Pobierz z sesji IG” automatycznie zaciąga listę
@@ -65,10 +69,6 @@ zewnętrznych), który obchodzi CORS i dokłada nagłówek wymagany przez Instag
   narzędzia: przeciągany bookmarklet (`collector.js`), który uruchamiasz **sam,
   we własnej przeglądarce**, na otwartej liście obserwujących: przewija ją,
   zbiera nazwy i kopiuje do schowka (nic nie trafia na serwer).
-- **Bubble map** — pakowane koła powiązanych kont dla kilku wprowadzonych
-  profili: wielkość bąbla = liczba wystąpień, a konto wspólne dla ≥2 profili jest
-  wyróżnione. Listy obserwujących/obserwowanych nie są dostępne publicznie, więc
-  można je **wkleić ręcznie** per konto, by zobaczyć realne nakładki między listami.
 - **Eksport** — kopiuj podsumowanie do schowka, pobierz JSON, drukuj do PDF.
 - **Historia** — ostatnio analizowane profile (localStorage), szybkie ponowienie.
 - **Tryb ręczny** — gdy pobranie zawiedzie, kafelki statystyk stają się
@@ -151,8 +151,7 @@ npm run build:names  # nadpisuje api/names-data.json
 | `index.html`     | struktura strony                                 |
 | `styles.css`     | wygląd (ciemny motyw)                             |
 | `app.js`         | front: render, analiza, eksport, historia        |
-| `graph.js`       | graf powiązań (SVG, symulacja sił)               |
-| `bubble.js`      | bubble map nakładających się powiązań             |
+| `network.js`     | zakładka Sieć: graf + bąbelki + panel sterowania  |
 | `collector.js`   | bookmarklet zbierający listę kont w przeglądarce  |
 | `session.js`     | opcjonalna sesja IG (cookie) do auto-pobierania    |
 | `api/server.js`     | backend-proxy + serwowanie frontu             |

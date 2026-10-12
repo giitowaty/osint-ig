@@ -411,6 +411,15 @@ body {
 .examples li { font-size: 13px; display: flex; align-items: baseline; gap: 7px; }
 .examples .dot { margin-top: 5px; flex-shrink: 0; }
 
+/* ---------- Sieć: nagłówek, przełącznik, panel ---------- */
+.net-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 26px 0 8px; flex-wrap: wrap; }
+.view-toggle { display: inline-flex; gap: 4px; background: var(--bg-elev); border: 1px solid var(--border); border-radius: 10px; padding: 3px; }
+.vt { background: none; border: none; cursor: pointer; color: var(--text-dim); font-size: 13px; font-weight: 600; padding: 7px 12px; border-radius: 8px; }
+.vt:hover { color: var(--text); }
+.vt.active { color: #fff; background: linear-gradient(135deg, var(--accent-2), var(--accent)); }
+.net-panel { background: var(--bg-elev); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
+.net-panel-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; }
+
 /* ---------- Graf powiązań ---------- */
 .g-form { display: flex; gap: 10px; margin: 0 0 12px; }
 .g-form .field-input { padding: 0 10px; }
