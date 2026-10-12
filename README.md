@@ -49,9 +49,30 @@ jego tokenem).
 Zamiast tego moduł robi **uczciwy szacunek**: z danych profilu bierze
 **podglądową próbkę** osób komentujących i lajkujących ostatnie posty (kilka–
 kilkadziesiąt nazw, bez dodatkowych zapytań do IG) i **zgaduje płeć z imienia**
-w nazwie użytkownika / nazwie wyświetlanej, używając wbudowanego słownika imion
-(`api/names.js`). Osoby bez rozpoznanego imienia trafiają do kategorii
-„nieokreślona". Wynik jest obarczony dużym błędem i wyraźnie tak oznaczony w UI.
+w nazwie użytkownika / nazwie wyświetlanej. Osoby bez rozpoznanego imienia
+trafiają do kategorii „nieokreślona". Wynik jest obarczony dużym błędem i
+wyraźnie tak oznaczony w UI.
+
+### Słownik imion
+
+Dopasowanie korzysta ze słownika `api/names-data.json` (~19 tys. imion żeńskich
+i ~20 tys. męskich, z diakrytykami i w formie ASCII). **Runtime nie ma żadnych
+zależności** — ładuje tylko gotowy JSON. Słownik jest generowany skryptem
+`api/build-names.mjs` z otwartych zbiorów:
+
+- [`gender-detection`](https://www.npmjs.com/package/gender-detection) — wielojęzyczny słownik imię→płeć,
+- [`human-names`](https://www.npmjs.com/package/human-names) — imiona EN/IT/FR/DE/ES/NL,
+- [`@stdlib/datasets-*-first-names-en`](https://www.npmjs.com/package/@stdlib/datasets-female-first-names-en) — angielskie (dane SSA),
+- [`imieniny`](https://www.npmjs.com/package/imieniny) — polski kalendarz imienin (z heurystyką płci PL),
+- kuratorski suplement najpopularniejszych polskich imion i zdrobnień.
+
+Płeć każdego imienia rozstrzygana jest **głosowaniem** źródeł; imiona
+faktycznie uniseks (remis) są pomijane. Regeneracja:
+
+```bash
+npm install          # instaluje devDependencies (tylko do budowy słownika)
+npm run build:names  # nadpisuje api/names-data.json
+```
 
 ## Skąd dane / ograniczenia
 
@@ -71,6 +92,8 @@ w nazwie użytkownika / nazwie wyświetlanej, używając wbudowanego słownika i
 | `index.html`     | struktura strony                                 |
 | `styles.css`     | wygląd (ciemny motyw)                             |
 | `app.js`         | front: render, analiza, eksport, historia        |
-| `api/server.js`  | backend-proxy + serwowanie frontu                |
-| `api/names.js`   | słownik i heurystyka imię → płeć                 |
-| `api/test.js`    | testy parsowania i heurystyki (bez sieci)        |
+| `api/server.js`     | backend-proxy + serwowanie frontu             |
+| `api/names.js`      | heurystyka imię → płeć (ładuje słownik)       |
+| `api/names-data.json` | wygenerowany słownik imion (runtime)        |
+| `api/build-names.mjs` | generator słownika z otwartych zbiorów      |
+| `api/test.js`       | testy parsowania i heurystyki (bez sieci)     |

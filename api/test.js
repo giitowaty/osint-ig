@@ -14,7 +14,7 @@ function ok(name, fn) {
   console.log("  ✓ " + name);
 }
 
-// --- heurystyka płci ---
+// --- heurystyka płci: podstawy ---
 ok("rozpoznaje imię żeńskie", () =>
   assert.strictEqual(guessGender("Anna Kowalska", "anna_k").gender, "female"));
 ok("rozpoznaje imię męskie", () =>
@@ -25,6 +25,22 @@ ok("dwuznaczne -> unknown", () =>
   assert.strictEqual(guessGender("Alex", "alex99").gender, "unknown"));
 ok("losowy nick -> unknown", () =>
   assert.strictEqual(guessGender("", "xqz_777").gender, "unknown"));
+
+// --- duży słownik: polskie imiona (w tym z diakrytykami i ascii) ---
+const FEMALE_NAMES = ["Małgorzata", "malgorzata", "Bożena", "Katarzyna",
+  "Agnieszka", "Oliwia", "Kasia", "Gosia", "Zuzanna", "Weronika"];
+const MALE_NAMES = ["Sławomir", "slawomir", "Przemysław", "Kuba", "Wojciech",
+  "Grzegorz", "Krzysztof", "Łukasz", "Mateusz", "Zbigniew"];
+for (const n of FEMALE_NAMES)
+  ok(`PL żeńskie: ${n}`, () => assert.strictEqual(guessGender(n, "").gender, "female"));
+for (const n of MALE_NAMES)
+  ok(`PL męskie: ${n}`, () => assert.strictEqual(guessGender(n, "").gender, "male"));
+
+// --- duży słownik: międzynarodowe ---
+ok("EN: John -> male", () => assert.strictEqual(guessGender("John", "").gender, "male"));
+ok("EN: Emily -> female", () => assert.strictEqual(guessGender("Emily", "").gender, "female"));
+ok("username z imieniem: piotr.nowak99", () =>
+  assert.strictEqual(guessGender("", "piotr.nowak99").gender, "male"));
 
 // --- payload / audience ---
 const mockUser = {
