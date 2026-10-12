@@ -30,7 +30,16 @@
     "appId": "io.github.giitowaty.osintig",
     "productName": "OSINT-IG",
     "copyright": "Copyright © 2026 giitowaty",
-    "asar": false,
+    "asar": true,
+    "asarUnpack": [
+      "api/**/*",
+      "index.html",
+      "app.js",
+      "network.js",
+      "collector.js",
+      "session.js",
+      "styles.css"
+    ],
     "files": [
       "electron/**/*",
       "api/**/*",

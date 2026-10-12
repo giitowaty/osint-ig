@@ -18,7 +18,14 @@ const net = require("net");
 const path = require("path");
 
 const PREFERRED_PORT = Number(process.env.PORT) || 8000;
-const SERVER_ENTRY = path.join(__dirname, "..", "api", "server.js");
+// Serwer jest forkowany w trybie ELECTRON_RUN_AS_NODE, który NIE czyta z
+// app.asar. W spakowanej aplikacji (asar) api/** i pliki frontu są rozpakowane
+// do app.asar.unpacked (patrz "asarUnpack" w package.json), więc kierujemy fork
+// na tę ścieżkę. W trybie dev ścieżka nie zawiera "app.asar" — replace jest
+// wtedy bez efektu.
+const SERVER_ENTRY = path
+  .join(__dirname, "..", "api", "server.js")
+  .replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`);
 const READY_TIMEOUT_MS = 30000; // maks. czas oczekiwania na gotowość serwera
 const POLL_INTERVAL_MS = 250;
 
