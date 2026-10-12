@@ -12,6 +12,7 @@ Publiczne API:
 
 from __future__ import annotations
 
+from .adapters import JSONDataAdapter
 from .metrics import EngagementMetrics, MetricsEngine
 from .models import AccountData, Post, Profile, extract_hashtags, extract_mentions
 from .nlp_pipeline import (
@@ -22,7 +23,7 @@ from .nlp_pipeline import (
     classify_posts,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "AccountData",
@@ -37,15 +38,30 @@ __all__ = [
     "DEFAULT_LEXICON",
     "MetricsEngine",
     "EngagementMetrics",
+    "JSONDataAdapter",
+    # leniwe (wymagają networkx):
+    "SocialGraph",
+    "NodeInfluence",
+    "compute_centralities",
+    "rank_influential",
+    "Neo4jExporter",
     "__version__",
 ]
 
 
-# SocialGraph wymaga networkx — import „leniwy”, by brak zależności nie psuł
-# importu całego pakietu (metrics/nlp działają bez networkx).
+# Elementy zależne od networkx importujemy „leniwo”, by brak zależności nie psuł
+# importu całego pakietu (metrics/nlp/adapter działają bez networkx).
 def __getattr__(name: str):  # noqa: D401 (PEP 562)
     if name == "SocialGraph":
         from .graph_schema import SocialGraph
 
         return SocialGraph
+    if name in ("NodeInfluence", "compute_centralities", "rank_influential"):
+        from . import centrality
+
+        return getattr(centrality, name)
+    if name == "Neo4jExporter":
+        from .neo4j_export import Neo4jExporter
+
+        return Neo4jExporter
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

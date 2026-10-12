@@ -1,4 +1,6 @@
 # Zależności runtime modułu social_analytics.
-# metrics i nlp_pipeline działają na samej bibliotece standardowej.
-# graph_schema wymaga networkx:
+# metrics, nlp_pipeline i JSONDataAdapter działają na samej bibliotece standardowej.
+# graph_schema / centrality / Neo4jExporter wymagają networkx;
+# PageRank w NetworkX 3.x korzysta ze scipy (centralności):
 networkx>=3.0
+scipy>=1.10

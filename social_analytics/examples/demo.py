@@ -10,17 +10,19 @@ import json
 from pathlib import Path
 
 from social_analytics import (
-    AccountData,
+    JSONDataAdapter,
     MetricsEngine,
-    SocialGraph,
+    Neo4jExporter,
     classify_posts,
 )
 
 
 def main() -> None:
-    data = json.loads((Path(__file__).parent / "sample_data.json").read_text(encoding="utf-8"))
-    account = AccountData.from_json(data)
+    raw = (Path(__file__).parent / "sample_data.json").read_text(encoding="utf-8")
 
+    # JSONDataAdapter wczytuje surowy JSON i mapuje na modele wewnętrzne.
+    adapter = JSONDataAdapter.from_string(raw)
+    account = adapter.first()
     print(f"Konto: @{account.username}  ({len(account.posts)} postów)\n")
 
     # 1) Metryki
@@ -33,13 +35,23 @@ def main() -> None:
     for ts in classify_posts(account.posts):
         print(f"  {ts.category:12s} {ts.score:5.0%}  ({ts.hits} trafień)")
 
-    # 3) Graf powiązań
-    graph = SocialGraph()
-    graph.ingest_account(account)
+    # 3) Graf + centralności / ranking wpływu
+    graph = adapter.to_social_graph()
     print("\n== Graf ==")
     print(f"  konta: {graph.accounts()}")
     print(f"  hashtagi: {graph.hashtags()}")
-    print(f"  najczęściej wspominani: {graph.most_mentioned(5)}")
+
+    print("\n== Ranking wpływu (centralności) ==")
+    for infl in graph.rank_influential(top=6):
+        print(f"  {infl.node:16s} {infl.influence:10s} "
+              f"score={infl.score:.3f}  pr={infl.pagerank:.3f}  btw={infl.betweenness:.3f}")
+
+    # 4) Eksport do Neo4j (Cypher)
+    print("\n== Eksport Neo4j (fragment Cypher) ==")
+    cypher = Neo4jExporter(graph).to_cypher()
+    for line in cypher.splitlines()[:6]:
+        print("  " + line)
+    print("  …")
 
 
 if __name__ == "__main__":

@@ -199,5 +199,30 @@ class SocialGraph:
         """Serializacja do formatu node-link (gotowe do ``json.dumps``)."""
         return nx.node_link_data(self._g, edges="links")
 
+    # ---------------------------------------------------------------- centralności
+    def centralities(
+        self,
+        measures: Iterable[str] | None = None,
+        *,
+        strict: bool = False,
+    ) -> dict[str, dict[str, float]]:
+        """Centralności węzłów (PageRank/Betweenness/Degree/Eigenvector).
+
+        Zob. :mod:`social_analytics.centrality`. Podnosi ``ValueError`` dla pustego
+        grafu lub nieznanej miary.
+        """
+        from .centrality import compute_centralities
+
+        return compute_centralities(self._g, measures, strict=strict)
+
+    def rank_influential(self, top: int = 10, *, strict: bool = False) -> list[Any]:
+        """Ranking top-N najważniejszych węzłów z rodzajem wpływu (hub/bridge/…).
+
+        Zwraca listę ``social_analytics.centrality.NodeInfluence``.
+        """
+        from .centrality import rank_influential
+
+        return rank_influential(self._g, top, strict=strict)
+
     def __len__(self) -> int:
         return self._g.number_of_nodes()
