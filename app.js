@@ -249,21 +249,29 @@ function classificationHtml(c) {
     <ul class="insights" style="margin-top:12px">${reasons}</ul>`;
 }
 
+const KIND_LABEL = { kategoria: "temat", konto: "konto", hashtag: "hashtag" };
+
 function interestsHtml(list) {
   if (!list || !list.length) {
     return `<h2 class="section-title">Zainteresowania</h2>
       <p class="muted">Za mało opisów/hashtagów, by wyznaczyć zainteresowania.</p>`;
   }
   const max = list[0].weight || 1;
-  const chips = list.map((i) => {
-    const scale = 0.85 + 0.6 * (i.weight / max); // 0.85–1.45em
-    return `<span class="interest ${i.kind}" style="font-size:${scale.toFixed(2)}em" title="waga ${i.weight}">${escapeHtml(i.label)}</span>`;
+  const sum = list.reduce((a, i) => a + i.weight, 0) || 1;
+  const rows = list.map((i) => {
+    const pct = Math.round((i.weight / sum) * 100);
+    return `<div class="rank-row">
+        <span class="rank-name"><span class="kind-dot ${i.kind}" title="${KIND_LABEL[i.kind] || ""}"></span>${escapeHtml(i.label)}</span>
+        <span class="rank-bar ${i.kind}"><span style="width:${Math.round((i.weight / max) * 100)}%"></span></span>
+        <span class="rank-pct">${pct}%</span>
+      </div>`;
   }).join("");
   return `<h2 class="section-title">Zainteresowania</h2>
-    <p class="muted" style="margin:0 2px 10px">Z tego, co konto publikuje i udostępnia: kategorie, hashtagi oraz
-      oznaczane/wzmiankowane konta (<span class="interest konto" style="font-size:.85em">@collab</span>).
-      Im większy napis, tym silniejszy motyw. Relacje (stories) nie są dostępne publicznie.</p>
-    <div class="interests">${chips}</div>`;
+    <p class="muted" style="margin:0 2px 10px">Z tego, co konto publikuje i udostępnia —
+      <span class="kind-dot kategoria"></span> temat,
+      <span class="kind-dot konto"></span> konto (oznaczenia/collab/@wzmianki),
+      <span class="kind-dot hashtag"></span> hashtag. Stories nie są dostępne publicznie.</p>
+    <div class="ranklist">${rows}</div>`;
 }
 
 function topicsHtml(t) {
@@ -423,34 +431,43 @@ function render(data) {
       <div id="insights-wrap">${insightsHtml(p)}</div>`;
   } else {
     body = `
-      <div class="tabs" role="tablist">
-        <button class="tab active" data-tab="przeglad" role="tab">Przegląd</button>
-        <button class="tab" data-tab="tresci" role="tab">Treści</button>
-        <button class="tab" data-tab="odbiorcy" role="tab">Odbiorcy</button>
-      </div>
-      <section class="tab-panel active" data-panel="przeglad">
-        <div class="tiles">${tilesHtml(p)}</div>
-        <h2 class="section-title">Analiza</h2>
-        <div id="insights-wrap">${insightsHtml(p)}</div>
-        ${ct ? classificationHtml(ct.classification) : ""}
-      </section>
-      <section class="tab-panel" data-panel="tresci">
-        ${postsHtml(current.posts)}
-        ${summaryHtml(current.summary)}
-        ${ct ? topicsHtml(ct.topics) : ""}
-        ${ct ? interestsHtml(ct.interests) : ""}
-      </section>
-      <section class="tab-panel" data-panel="odbiorcy">
-        ${ct ? sentimentHtml(ct.sentiment) : ""}
-        ${audienceHtml(current.audience)}
-      </section>`;
+      <div class="layout">
+        <nav class="sidenav" role="tablist">
+          <button class="navitem active" data-tab="przeglad" role="tab"><span class="ni">📊</span> Przegląd</button>
+          <button class="navitem" data-tab="tresci" role="tab"><span class="ni">🖼️</span> Treści</button>
+          <button class="navitem" data-tab="odbiorcy" role="tab"><span class="ni">👥</span> Odbiorcy</button>
+        </nav>
+        <div class="panels">
+          <section class="tab-panel active" data-panel="przeglad">
+            <div class="tiles">${tilesHtml(p)}</div>
+            <div class="grid-2">
+              <div><h2 class="section-title">Analiza</h2><div id="insights-wrap">${insightsHtml(p)}</div></div>
+              <div>${ct ? classificationHtml(ct.classification) : ""}</div>
+            </div>
+          </section>
+          <section class="tab-panel" data-panel="tresci">
+            ${postsHtml(current.posts)}
+            ${summaryHtml(current.summary)}
+            <div class="grid-2">
+              <div>${ct ? topicsHtml(ct.topics) : ""}</div>
+              <div>${ct ? interestsHtml(ct.interests) : ""}</div>
+            </div>
+          </section>
+          <section class="tab-panel" data-panel="odbiorcy">
+            <div class="grid-2">
+              <div>${ct ? sentimentHtml(ct.sentiment) : ""}</div>
+              <div>${audienceHtml(current.audience)}</div>
+            </div>
+          </section>
+        </div>
+      </div>`;
   }
 
   resultEl.innerHTML = `<article class="card">${head}${body}</article>`;
   resultEl.hidden = false;
 
-  // Przełączanie zakładek.
-  const tabs = resultEl.querySelectorAll(".tab");
+  // Przełączanie zakładek (boczna nawigacja).
+  const tabs = resultEl.querySelectorAll(".navitem");
   tabs.forEach((tab) => tab.addEventListener("click", () => {
     tabs.forEach((t) => t.classList.remove("active"));
     tab.classList.add("active");

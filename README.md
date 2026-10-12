@@ -15,19 +15,22 @@ zewnętrznych), który obchodzi CORS i dokłada nagłówek wymagany przez Instag
 - **Podsumowanie treści** — rozkład formatów, **wskaźnik zaangażowania**
   (engagement = śr. (lajki + komentarze) ÷ obserwujący), średnie lajki,
   najczęstsze hashtagi.
-- **Zakładki** — wyniki podzielone na *Przegląd* (statystyki, analiza,
-  klasyfikacja), *Treści* (posty, tematyka, zainteresowania) i *Odbiorcy*
-  (wydźwięk komentarzy, płeć). W PDF drukują się wszystkie naraz.
+- **Układ z boczną nawigacją** — wyniki podzielone na sekcje *Przegląd*
+  (statystyki, analiza, klasyfikacja), *Treści* (posty, tematyka,
+  zainteresowania) i *Odbiorcy* (wydźwięk komentarzy, płeć); treść w dwóch
+  kolumnach dla czytelności. Na wąskich ekranach nawigacja przechodzi na górę,
+  kolumny układają się jedna pod drugą; w PDF drukują się wszystkie sekcje.
 - **Klasyfikacja konta** — archetyp (fotograf, muzyk, sportowiec, marka,
   influencer, osoba prywatna…) wnioskowany z **kategorii nadanej w IG** oraz
   sygnałów (zasięg, ratio, weryfikacja, dominująca tematyka), z uzasadnieniem.
 - **Tematyka treści** — dominujące kategorie postów (podróże, jedzenie, moda,
   fitness, zwierzęta, sztuka, muzyka, biznes…) wykrywane z opisów, hashtagów i
   opisów zdjęć (leksykon PL+EN).
-- **Zainteresowania** — ważona chmura z tego, co konto publikuje i udostępnia:
-  kategorie, konkretne hashtagi oraz **oznaczane/wzmiankowane konta** (partnerzy,
-  współautorzy collab/regramów, @wzmianki). *Relacje (stories) nie są dostępne
-  z publicznego API bez logowania.*
+- **Zainteresowania** — ranking (słupki + udziały %) z tego, co konto publikuje
+  i udostępnia: kategorie, konkretne hashtagi oraz **oznaczane/wzmiankowane
+  konta** (partnerzy, współautorzy collab/regramów, @wzmianki), z kolorowym
+  oznaczeniem rodzaju. *Relacje (stories) nie są dostępne z publicznego API bez
+  logowania.*
 - **Wydźwięk komentarzy** — sentyment (pozytywny / neutralny / negatywny) z
   próbki podglądowych komentarzy, na bazie leksykonu słów i emoji; z ogólnym
   tonem i przykładami.
