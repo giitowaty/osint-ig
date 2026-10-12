@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from .adapters import JSONDataAdapter
 from .metrics import EngagementMetrics, MetricsEngine
+from .pipeline import analyze
 from .models import AccountData, Post, Profile, extract_hashtags, extract_mentions
 from .nlp_pipeline import (
     DEFAULT_LEXICON,
@@ -39,6 +40,7 @@ __all__ = [
     "MetricsEngine",
     "EngagementMetrics",
     "JSONDataAdapter",
+    "analyze",
     # leniwe (wymagają networkx):
     "SocialGraph",
     "NodeInfluence",

@@ -112,6 +112,17 @@ exporter.write("graph.cypher")           # skrypt MERGE (idempotentny)
 exporter.parameterized()                 # [("MERGE (a:Account {username:$username})", {...}), ...]
 ```
 
+### 6. Dashboard webowy (`webapp/`, opcjonalny)
+Lekka warstwa wizualna (FastAPI + Tailwind) nad silnikiem: ciemny panel z
+engagement rate, paskami tematycznymi, rankingiem wpływu i interaktywnym grafem.
+Logika spięcia jest w `pipeline.analyze(data)` (czysta funkcja JSON→JSON), a
+serwer to cienka nakładka HTTP. Uruchomienie i API: `webapp/README.md`.
+
+```bash
+pip install -r social_analytics/webapp/requirements.txt
+uvicorn social_analytics.webapp.server:app --port 8100
+```
+
 ## Modele danych (`models.py`)
 `Post`, `Profile`, `AccountData` — typowane dataclassy z metodami `from_json(...)`,
 odporne na braki/śmieci w wejściu. Hashtagi i wzmianki są auto-wyłuskiwane z opisu.
@@ -120,5 +131,5 @@ odporne na braki/śmieci w wejściu. Hashtagi i wzmianki są auto-wyłuskiwane z
 - Pełne typowanie (`from __future__ import annotations`, `typing`).
 - Obsługa błędów: jawne `TypeError`/`ValueError` z czytelnymi komunikatami,
   bezpieczne konwersje, brak „cichych” wyjątków psujących potok.
-- Testy: `python -m unittest discover -s social_analytics/tests -t .` (48 testów).
+- Testy: `python -m unittest discover -s social_analytics/tests -t .` (56 testów).
 - Demo: `python -m social_analytics.examples.demo`.

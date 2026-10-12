@@ -1,0 +1,6 @@
+# Zależności warstwy webowej (dashboard FastAPI).
+# Wymaga też pakietu nadrzędnego social_analytics (networkx, scipy).
+fastapi>=0.110
+uvicorn[standard]>=0.29
+# httpx jest potrzebny tylko do testów (fastapi.testclient):
+httpx>=0.27
