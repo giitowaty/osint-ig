@@ -309,6 +309,68 @@ export function rankInfluential(g: GraphModel, c = centralities(g)): NodeInfluen
     .sort((a, b) => b.score - a.score)
 }
 
+/**
+ * Wykrywa społeczności (skupiska) zachłanną maksymalizacją modularności
+ * (odpowiednik greedy_modularity_communities z modułu Python). Działa na
+ * nieskierowanej, ważonej projekcji grafu: zaczyna od każdego węzła osobno i
+ * łączy pary społeczności dające największy dodatni przyrost modularności
+ * ΔQ = w_cd/m − tot_c·tot_d/(2m²), aż żadne łączenie nie poprawia wyniku.
+ * Deterministyczna (remisy rozstrzygane leksykalnie). Zwraca mapę
+ * {węzeł -> indeks społeczności} (indeksy 0..k wg pierwszego wystąpienia).
+ */
+export function communities(g: GraphModel): Map<string, number> {
+  const ids = g.nodes.map((n) => n.id)
+  if (!ids.length) return new Map()
+  const deg = new Map<string, number>(ids.map((id) => [id, 0]))
+  const known = new Set(ids)
+  let m = 0
+  for (const e of g.edges) {
+    if (e.source === e.target || !known.has(e.source) || !known.has(e.target)) continue
+    const w = e.weight || 1
+    deg.set(e.source, deg.get(e.source)! + w)
+    deg.set(e.target, deg.get(e.target)! + w)
+    m += w
+  }
+  const comm = new Map<string, string>(ids.map((id) => [id, id])) // węzeł -> etykieta społeczności
+  if (m > 0) {
+    const m2 = 2 * m * m
+    for (;;) {
+      const tot = new Map<string, number>()
+      for (const id of ids) tot.set(comm.get(id)!, (tot.get(comm.get(id)!) ?? 0) + deg.get(id)!)
+      const cross = new Map<string, number>() // waga krawędzi między społecznościami (para raz)
+      for (const e of g.edges) {
+        if (e.source === e.target || !known.has(e.source) || !known.has(e.target)) continue
+        const cu = comm.get(e.source)!, cv = comm.get(e.target)!
+        if (cu === cv) continue
+        const key = cu < cv ? `${cu}\u0000${cv}` : `${cv}\u0000${cu}`
+        cross.set(key, (cross.get(key) ?? 0) + (e.weight || 1))
+      }
+      let bestKey = "", bestDQ = 1e-12
+      for (const [key, w] of cross) {
+        const [c, d] = key.split("\u0000")
+        const dQ = w / m - (tot.get(c)! * tot.get(d)!) / m2
+        if (dQ > bestDQ || (dQ === bestDQ && bestKey && key < bestKey)) { bestDQ = dQ; bestKey = key }
+      }
+      if (!bestKey) break
+      const [c, d] = bestKey.split("\u0000") // scalamy d -> c (c leksykalnie mniejsze)
+      for (const id of ids) if (comm.get(id) === d) comm.set(id, c)
+    }
+  }
+  const remap = new Map<string, number>()
+  const out = new Map<string, number>()
+  for (const id of ids) {
+    const lab = comm.get(id)!
+    if (!remap.has(lab)) remap.set(lab, remap.size)
+    out.set(id, remap.get(lab)!)
+  }
+  return out
+}
+
+/** Liczba wykrytych społeczności (0 dla pustego grafu). */
+export function communityCount(comm: Map<string, number>): number {
+  return comm.size ? Math.max(...comm.values()) + 1 : 0
+}
+
 export const INFLUENCE_LABEL: Record<Influence, string> = {
   hub: "Hub",
   bridge: "Most",

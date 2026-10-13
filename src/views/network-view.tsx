@@ -40,7 +40,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { analyze, applyPastedList, fetchList, fetchListsForAll } from "@/lib/actions"
 import { fmtCompact } from "@/lib/analysis"
 import { cypher, downloadDataUrl, downloadText, edgesCsv, gexf, nodeLink, nodesCsv } from "@/lib/exporters"
-import { buildGraph, graphPreview, rankInfluential, INFLUENCE_LABEL, type GraphModel } from "@/lib/graph"
+import { buildGraph, communities, communityCount, graphPreview, rankInfluential, INFLUENCE_LABEL, type GraphModel } from "@/lib/graph"
 import { navigate, setAutoLists, useStore, type ProfileEntry } from "@/lib/store"
 import { cn } from "@/lib/utils"
 
@@ -363,6 +363,7 @@ export function NetworkView() {
   const [hashtags, setHashtags] = React.useState(false)
   const [lists, setLists] = React.useState(true)
   const [sharedOnly, setSharedOnly] = React.useState(false)
+  const [colorComm, setColorComm] = React.useState(false)
   const [selected, setSelected] = React.useState<string | null>(null)
   const [query, setQuery] = React.useState("")
   const [focus, setFocus] = React.useState<string | null>(null)
@@ -372,6 +373,12 @@ export function NetworkView() {
   const { model, fullModel, analyzed, truncated } = useGraphModel({ hashtags, lists, minSources: 1, focus })
 
   const sharedCount = model.nodes.filter((n) => n.shared && n.kind !== "analyzed").length
+  // Społeczności liczymy tylko gdy kolorowanie włączone (koszt O(n·krawędzie)).
+  const communityMap = React.useMemo(
+    () => (colorComm && mode === "graph" ? communities(model) : undefined),
+    [colorComm, mode, model],
+  )
+  const communityN = communityMap ? communityCount(communityMap) : 0
 
   const find = (e: React.FormEvent) => {
     e.preventDefault()
@@ -426,6 +433,12 @@ export function NetworkView() {
           <Switch size="sm" checked={sharedOnly} onCheckedChange={setSharedOnly} />
           Wyróżnij wspólne
         </Label>
+        {mode === "graph" && (
+          <Label className="flex items-center gap-2 text-xs font-normal">
+            <Switch size="sm" checked={colorComm} onCheckedChange={setColorComm} />
+            Koloruj społeczności
+          </Label>
+        )}
         <form onSubmit={find} className="flex h-7 items-center gap-1.5 border border-input px-2 focus-within:border-ring">
           <SearchIcon className="size-3.5 text-muted-foreground" />
           <input
@@ -438,7 +451,7 @@ export function NetworkView() {
         </form>
         <div className="ml-auto flex items-center gap-2">
           <span className="tnum hidden text-xs text-muted-foreground xl:inline">
-            {analyzed.length} profili · {model.nodes.length} węzłów · {model.edges.length} relacji · {sharedCount} wspólnych
+            {analyzed.length} profili · {model.nodes.length} węzłów · {model.edges.length} relacji · {sharedCount} wspólnych{communityMap ? ` · ${communityN} społeczności` : ""}
           </span>
           <ExportMenu model={fullModel} graphRef={graphRef} canPng={mode === "graph"} />
           <ListsSheet />
@@ -469,6 +482,7 @@ export function NetworkView() {
               selected={selected}
               onSelect={setSelected}
               focusShared={sharedOnly}
+              communities={communityMap}
               className="absolute inset-0"
             />
           ) : (

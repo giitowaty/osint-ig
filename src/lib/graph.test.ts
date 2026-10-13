@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { betweenness, buildGraph, centralities, degreeCentrality, pagerank, rankInfluential, type GraphModel } from "./graph"
+import { betweenness, buildGraph, centralities, communities, communityCount, degreeCentrality, pagerank, rankInfluential, type GraphModel } from "./graph"
 import type { ProfileEntry } from "./store"
 
 const g = (edges: [string, string][]): GraphModel => {
@@ -36,6 +36,31 @@ describe("centralności (zgodne z networkx)", () => {
     const r = rankInfluential(star, centralities(star))
     expect(r[0].node).toBe("hub")
     expect(r[0].influence).toBe("hub")
+  })
+})
+
+describe("społeczności (zachłanna modularność)", () => {
+  it("dwa trójkąty połączone jednym łącznikiem → ≥2 społeczności, trójkąt razem", () => {
+    const two = g([
+      ["a", "b"], ["b", "c"], ["c", "a"],
+      ["d", "e"], ["e", "f"], ["f", "d"],
+      ["c", "d"],
+    ])
+    const comm = communities(two)
+    expect(comm.size).toBe(6)
+    expect(communityCount(comm)).toBeGreaterThanOrEqual(2)
+    expect(comm.get("a")).toBe(comm.get("b"))
+    expect(comm.get("d")).toBe(comm.get("e"))
+    expect(comm.get("a")).not.toBe(comm.get("d"))
+  })
+
+  it("pusty graf → brak społeczności", () => {
+    expect(communityCount(communities({ nodes: [], edges: [] }))).toBe(0)
+  })
+
+  it("jest deterministyczna", () => {
+    const m = g([["a", "b"], ["b", "c"], ["c", "a"], ["d", "e"], ["e", "f"], ["f", "d"], ["c", "d"]])
+    expect([...communities(m)]).toEqual([...communities(m)])
   })
 })
 

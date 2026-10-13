@@ -9,6 +9,12 @@ import * as React from "react"
 
 import type { GEdge, GNode, GraphModel } from "@/lib/graph"
 
+// Paleta społeczności (kolorowanie węzłów). Brand-neutralna, czytelna w obu motywach.
+const COMMUNITY_COLORS = [
+  "#4f9cf2", "#3fb950", "#e3a008", "#d2698f", "#9a7bf2",
+  "#56c7c0", "#e06c4f", "#8b93f0", "#6fbf73", "#c99a3f",
+]
+
 interface SimNode extends GNode {
   x: number
   y: number
@@ -146,9 +152,11 @@ export const ForceGraph = React.forwardRef<
     selected: string | null
     onSelect: (id: string | null) => void
     focusShared?: boolean
+    /** Mapa {węzeł -> indeks społeczności}; gdy podana, węzły kont kolorowane wg grupy. */
+    communities?: Map<string, number>
     className?: string
   }
->(function ForceGraph({ model, selected, onSelect, focusShared, className }, ref) {
+>(function ForceGraph({ model, selected, onSelect, focusShared, communities, className }, ref) {
   const wrapRef = React.useRef<HTMLDivElement>(null)
   const canvasRef = React.useRef<HTMLCanvasElement>(null)
   const sim = React.useRef({
@@ -169,6 +177,8 @@ export const ForceGraph = React.forwardRef<
   selectedRef.current = selected
   const focusRef = React.useRef(focusShared)
   focusRef.current = focusShared
+  const commRef = React.useRef(communities)
+  commRef.current = communities
   const onSelectRef = React.useRef(onSelect)
   onSelectRef.current = onSelect
 
@@ -372,7 +382,11 @@ export const ForceGraph = React.forwardRef<
         ctx.fillStyle = pal.tag
       } else {
         ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2)
-        ctx.fillStyle = n.kind === "analyzed" ? pal.fg : n.shared ? pal.shared : pal.account
+        const comm = commRef.current?.get(n.id)
+        ctx.fillStyle =
+          comm != null
+            ? COMMUNITY_COLORS[comm % COMMUNITY_COLORS.length]
+            : n.kind === "analyzed" ? pal.fg : n.shared ? pal.shared : pal.account
       }
       ctx.fill()
       // pierścień 2px w kolorze tła: oddziela nakładające się znaczniki
@@ -464,7 +478,7 @@ export const ForceGraph = React.forwardRef<
 
   React.useEffect(() => {
     kick(0)
-  }, [selected, focusShared, kick])
+  }, [selected, focusShared, communities, kick])
 
   /* --- interakcje --- */
   const toWorld = (cx: number, cy: number) => {

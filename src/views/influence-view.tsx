@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { analyze } from "@/lib/actions"
-import { centralities, INFLUENCE_HINT, INFLUENCE_LABEL, rankInfluential, type GraphModel, type Influence, type NodeInfluence } from "@/lib/graph"
+import { centralities, communities, communityCount, INFLUENCE_HINT, INFLUENCE_LABEL, rankInfluential, type GraphModel, type Influence, type NodeInfluence } from "@/lib/graph"
 import { navigate, useStore } from "@/lib/store"
 import { cn } from "@/lib/utils"
 import { useGraphModel } from "@/views/network-view"
@@ -31,11 +31,12 @@ const INF_ORDER: Influence[] = ["hub", "bridge", "connector", "peripheral"]
 
 /** Liczy centralności i ranking, mierząc czas obliczeń (pokazywany w UI). */
 function analyzeGraph(model: GraphModel) {
-  if (!model.nodes.length) return { rank: [] as NodeInfluence[], cent: null, ms: 0 }
+  if (!model.nodes.length) return { rank: [] as NodeInfluence[], cent: null, ms: 0, comm: 0 }
   const t0 = performance.now()
   const c = centralities(model)
   const r = rankInfluential(model, c)
-  return { rank: r, cent: c, ms: Math.round(performance.now() - t0) }
+  const comm = communityCount(communities(model))
+  return { rank: r, cent: c, ms: Math.round(performance.now() - t0), comm }
 }
 
 export function InfluenceView() {
@@ -46,7 +47,7 @@ export function InfluenceView() {
   const profiles = useStore((s) => s.profiles)
   const { model, fullModel, analyzed, truncated } = useGraphModel({ hashtags, lists, minSources: 1 })
 
-  const { rank, cent, ms } = React.useMemo(() => analyzeGraph(model), [model])
+  const { rank, cent, ms, comm } = React.useMemo(() => analyzeGraph(model), [model])
 
   const sorted = React.useMemo(() => [...rank].sort((a, b) => b[sort] - a[sort]), [rank, sort])
   const counts = React.useMemo(() => {
@@ -99,6 +100,7 @@ export function InfluenceView() {
           ["Węzły", n],
           ["Relacje", model.edges.length],
           ["Gęstość", density.toFixed(4)],
+          ["Społeczności", comm],
           ...INF_ORDER.map((k) => [INFLUENCE_LABEL[k], counts[k]] as const),
         ].map(([label, value]) => (
           <div key={label} className="flex flex-col gap-0.5 border-r border-b border-border/70 px-4 py-3 xl:border-b-0">
