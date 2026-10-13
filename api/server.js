@@ -1,509 +1,410 @@
 "use strict";
 
 /* ----------------------------------------------------------------------------
- * OSINT-IG — backend proxy (zero zależności zewnętrznych).
+ * OSINT-IG — backend (zero zależności runtime).
  *
- * Serwuje statyczny front ORAZ proxy do Instagrama, który obchodzi CORS i
- * dokłada nagłówek x-ig-app-id wymagany przez endpoint web_profile_info.
- * Zwraca znormalizowany profil, ostatnie posty oraz szacunek płci z próbki
- * komentujących/lajkujących (bez dodatkowych zapytań do IG).
+ *  • proxy do Instagrama (omija CORS, dokłada wymagane nagłówki),
+ *  • strumień postępu na żywo (SSE): każdy krok zadania widać w UI,
+ *  • ustrukturyzowane błędy z diagnostyką odpowiedzi IG,
+ *  • proxy obrazków z CDN IG (miniatury blokowane przez CORP),
+ *  • serwowanie zbudowanego frontu (dist/) w trybie web.
  *
- * Uruchomienie:  node api/server.js        (domyślnie http://localhost:8000)
+ * Uruchomienie:  node api/server.js   (domyślnie http://127.0.0.1:8000)
+ * Zmienne: PORT, HOST, OSINT_STATIC_DIR, OSINT_ALLOWED_ORIGINS (po przecinku).
  * -------------------------------------------------------------------------- */
 
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
-const { spawn } = require("child_process");
-const { guessGender } = require("./names");
+const { createHash } = require("node:crypto");
+const { ApiError, CODES, toApiError } = require("./errors");
+const { Trace } = require("./trace");
+const { sessionFromHeaders } = require("./cookies");
+const { createExtensionBridge } = require("./extension-bridge");
 const {
-  classifyTopics, commentSentiment, deriveInterests, classifyAccount,
-} = require("./content");
+  fetchProfileUser, fetchFriendList, fetchFollowersPage, fetchWhoami, usersFromResponse, cooldownState, resetCooldown, UA,
+} = require("./instagram");
+const {
+  buildPayload, buildPayloadTraced, normalizePosts, collectConnections, estimateAudience,
+} = require("./normalize");
 
-const ROOT = path.join(__dirname, "..");
-const PORT = process.env.PORT || 8000;
-const IG_APP_ID = "936619743392459";
-const IG_ENDPOINT =
-  "https://www.instagram.com/api/v1/users/web_profile_info/?username=";
+const VERSION = "0.5.0";
+const PORT = Number(process.env.PORT) || 8000;
+const HOST = process.env.HOST || "127.0.0.1";
+const STATIC_DIR = process.env.OSINT_STATIC_DIR || path.join(__dirname, "..", "dist");
+const STARTED = Date.now();
 
-const STATIC = {
-  "/": { file: "index.html", type: "text/html; charset=utf-8" },
-  "/index.html": { file: "index.html", type: "text/html; charset=utf-8" },
-  "/styles.css": { file: "styles.css", type: "text/css; charset=utf-8" },
-  "/app.js": { file: "app.js", type: "application/javascript; charset=utf-8" },
-  "/network.js": { file: "network.js", type: "application/javascript; charset=utf-8" },
-  "/collector.js": { file: "collector.js", type: "application/javascript; charset=utf-8" },
-  "/session.js": { file: "session.js", type: "application/javascript; charset=utf-8" },
+const ALLOWED_ORIGINS = new Set([
+  "tauri://localhost",
+  "http://tauri.localhost",
+  "https://tauri.localhost",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  ...String(process.env.OSINT_ALLOWED_ORIGINS || "").split(",").map((s) => s.trim()).filter(Boolean),
+]);
+
+// Pamięć podręczna wyników analizy: ponowne otwarcie profilu nie pyta IG.
+const CACHE_TTL_MS = Number(process.env.OSINT_CACHE_TTL_MS) || 15 * 60_000;
+const profileCache = new Map(); // key -> { at, payload }
+const cacheKey = (username, session) => `${username.toLowerCase()}|${session ? createHash("sha256").update(session.cookie).digest("hex") : "a"}`;
+
+const IMG_HOSTS = /(^|\.)(cdninstagram\.com|fbcdn\.net)$/i;
+
+const MIME = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "application/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".ico": "image/x-icon",
+  ".woff2": "font/woff2",
+  ".woff": "font/woff",
+  ".txt": "text/plain; charset=utf-8",
 };
 
-/* ------------------------------ IG fetch --------------------------------- */
+/* ------------------------------- Pomocnicze ------------------------------- */
 
-async function fetchInstagram(username, sessionid) {
-  const url = IG_ENDPOINT + encodeURIComponent(username);
-  const headers = {
-    "User-Agent":
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-      "(KHTML, like Gecko) Chrome/120.0 Safari/537.36",
-    "x-ig-app-id": IG_APP_ID,
-    Accept: "*/*",
-    "Accept-Language": "en-US,en;q=0.9",
-    Referer: `https://www.instagram.com/${encodeURIComponent(username)}/`,
-  };
-  // Zalogowana sesja (opcjonalnie) — mocno zwiększa szansę powodzenia, bo IG
-  // blokuje anonimowe zapytania.
-  if (sessionid) headers.Cookie = `sessionid=${sessionid}`;
-  let res;
-  try {
-    res = await fetch(url, { headers });
-  } catch (e) {
-    const err = new Error(
-      "Nie udało się połączyć z Instagramem (fetch failed). " +
-      "Zwykle pomaga ustawienie sesji IG (cookie sessionid)."
-    );
-    err.status = 502;
-    throw err;
-  }
-  if (!res.ok) {
-    const err = new Error(`Instagram odpowiedział HTTP ${res.status}` +
-      (res.status === 401 || res.status === 403 ? " (wymaga logowania — ustaw sesję IG)." : ""));
-    err.status = res.status === 404 ? 404 : 502;
-    throw err;
-  }
-  const text = await res.text();
-  let json;
-  try {
-    json = JSON.parse(text);
-  } catch {
-    const err = new Error("Instagram nie zwrócił danych (prawdopodobnie wymaga logowania).");
-    err.status = 502;
-    throw err;
-  }
-  const user = json && json.data && json.data.user;
-  if (!user) {
-    const err = new Error("Nie znaleziono profilu.");
-    err.status = 404;
-    throw err;
-  }
-  return user;
+function stamp() {
+  return new Date().toISOString().slice(11, 23);
 }
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-// Losowa liczba całkowita z zakresu [min, max] (jitter opóźnień).
-const randInt = (min, max) => min + Math.floor(Math.random() * (max - min + 1));
-
-// Twarde granice opóźnień między stronami (ms) — chronią przed samobójczym tempem.
-const DELAY_FLOOR = 300;     // poniżej tego ryzyko blokady rośnie gwałtownie
-const DELAY_CEIL = 15000;    // wyżej nie ma sensu
-const DELAY_DEFAULT_MIN = 600;
-const DELAY_DEFAULT_MAX = 1400;
-
-// Sprowadza podane min/max do bezpiecznego, poprawnego zakresu.
-function clampDelays(delayMin, delayMax) {
-  let lo = Number.isFinite(delayMin) ? delayMin : DELAY_DEFAULT_MIN;
-  let hi = Number.isFinite(delayMax) ? delayMax : DELAY_DEFAULT_MAX;
-  lo = Math.min(Math.max(lo, DELAY_FLOOR), DELAY_CEIL);
-  hi = Math.min(Math.max(hi, DELAY_FLOOR), DELAY_CEIL);
-  if (lo > hi) { const t = lo; lo = hi; hi = t; } // zamiana, gdy min > max
-  return { lo, hi };
+function log(...args) {
+  console.log(`[${stamp()}]`, ...args);
 }
 
-// Wyłuskuje nazwy kont z odpowiedzi IG (friendships followers/following).
-function usersFromResponse(j) {
-  if (!j || !Array.isArray(j.users)) return [];
-  return j.users.map((u) => u && u.username).filter(Boolean);
-}
-
-/**
- * Pobiera listę obserwujących/obserwowanych konta przy użyciu cookie sesji IG
- * podanego przez użytkownika. Scraping przez zalogowaną sesję — używane tylko
- * na żądanie, sessionid nie jest nigdzie zapisywany.
- */
-async function fetchFriendList(username, type, sessionid, opts = {}) {
-  const user = await fetchInstagram(username); // daje m.in. user.id
-  const id = user.id;
-  if (!id) { const e = new Error("Nie udało się ustalić ID konta."); e.status = 502; throw e; }
-  const path = type === "following" ? "following" : "followers";
-  const cap = Math.min(Math.max(1, opts.limit || 300), 2000);
-  const { lo, hi } = clampDelays(opts.delayMin, opts.delayMax); // losowy jitter opóźnień
-  const PAGE = 50;
-  const out = [];
-  let maxId = "", pages = 0;
-  while (out.length < cap && pages < Math.ceil(cap / PAGE) + 3) {
-    const url = `https://www.instagram.com/api/v1/friendships/${id}/${path}/?count=${PAGE}` +
-      (maxId ? `&max_id=${encodeURIComponent(maxId)}` : "");
-    const res = await fetch(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
-        "x-ig-app-id": IG_APP_ID,
-        "X-Requested-With": "XMLHttpRequest",
-        Referer: `https://www.instagram.com/${encodeURIComponent(username)}/`,
-        Accept: "*/*",
-        Cookie: `sessionid=${sessionid}`,
-      },
-    });
-    if (res.status === 401 || res.status === 403) {
-      const e = new Error("Sesja odrzucona lub brak dostępu (wygasłe cookie albo konto prywatne).");
-      e.status = 403; throw e;
-    }
-    if (!res.ok) break;
-    const j = await res.json().catch(() => null);
-    const names = usersFromResponse(j);
-    if (!names.length) break;
-    for (const n of names) out.push(n);
-    if (!j.next_max_id) break;
-    maxId = j.next_max_id; pages++;
-    await sleep(randInt(lo, hi)); // losowe opóźnienie — mniej regularne, trudniejsze do wykrycia
-  }
-  return { ok: true, username: user.username || username, type: path, count: out.length, users: out.slice(0, cap), truncated: out.length >= cap };
-}
-
-/**
- * Zwraca nazwę konta powiązanego z podanym cookie sesji IG (weryfikacja sesji
- * i pokazanie „z jakiego konta korzysta aplikacja”). Nie zapisuje sessionid.
- */
-async function fetchWhoami(sessionid) {
-  const res = await fetch("https://www.instagram.com/api/v1/accounts/current_user/?edit=false", {
-    headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
-      "x-ig-app-id": IG_APP_ID,
-      "X-Requested-With": "XMLHttpRequest",
-      Referer: "https://www.instagram.com/",
-      Accept: "*/*",
-      Cookie: `sessionid=${sessionid}`,
-    },
-  });
-  if (res.status === 401 || res.status === 403) {
-    const e = new Error("Sesja odrzucona (wygasłe lub błędne cookie)."); e.status = 401; throw e;
-  }
-  if (!res.ok) { const e = new Error(`Instagram HTTP ${res.status}`); e.status = 502; throw e; }
-  const j = await res.json().catch(() => null);
-  const username = j && j.user && j.user.username;
-  if (!username) { const e = new Error("Nie udało się odczytać konta sesji."); e.status = 502; throw e; }
-  return { ok: true, username };
-}
-
-/* ------------------------------ Normalizacja ----------------------------- */
-
-function mediaType(node) {
-  switch (node.__typename) {
-    case "GraphVideo": return "video";
-    case "GraphSidecar": return "carousel";
-    default: return "image";
-  }
-}
-
-function normalizePosts(user) {
-  const edges =
-    (user.edge_owner_to_timeline_media && user.edge_owner_to_timeline_media.edges) || [];
-  return edges.map(({ node }) => {
-    const caption =
-      node.edge_media_to_caption &&
-      node.edge_media_to_caption.edges[0] &&
-      node.edge_media_to_caption.edges[0].node.text;
-    const likes =
-      (node.edge_liked_by && node.edge_liked_by.count) ??
-      (node.edge_media_preview_like && node.edge_media_preview_like.count) ??
-      null;
-    // Konta oznaczone na zdjęciu + współautorzy (collab/regram).
-    const tagged = [];
-    const taggedEdges =
-      (node.edge_media_to_tagged_user && node.edge_media_to_tagged_user.edges) || [];
-    for (const e of taggedEdges) {
-      const u = e.node && e.node.user;
-      if (u && u.username) tagged.push(u.username);
-    }
-    for (const c of node.coauthor_producers || []) {
-      if (c && c.username) tagged.push(c.username);
-    }
+function corsHeaders(req) {
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.has(origin)) {
     return {
-      shortcode: node.shortcode || "",
-      thumbnail: node.thumbnail_src || node.display_url || "",
-      type: mediaType(node),
-      isVideo: !!node.is_video,
-      likes,
-      comments: node.edge_media_to_comment ? node.edge_media_to_comment.count : null,
-      caption: caption || "",
-      alt: node.accessibility_caption || "",
-      tagged,
+      "Access-Control-Allow-Origin": origin,
+      "Access-Control-Allow-Headers": "x-ig-session, x-ig-cookies, content-type, accept, x-osint-bridge, x-osint-transfer, x-osint-result",
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Max-Age": "600",
+      Vary: "Origin",
     };
-  });
+  }
+  return {};
 }
 
-/**
- * Zbiera podglądowe komentarze z ostatnich postów (bez dodatkowych zapytań).
- * Zwraca [{ username, fullName, text }].
- */
-function collectComments(user) {
-  const edges =
-    (user.edge_owner_to_timeline_media && user.edge_owner_to_timeline_media.edges) || [];
-  const out = [];
-  for (const { node } of edges) {
-    const comments =
-      (node.edge_media_preview_comment && node.edge_media_preview_comment.edges) || [];
-    for (const e of comments) {
-      const n = e.node || {};
-      const o = n.owner || {};
-      out.push({ username: o.username || "", fullName: o.full_name || "", text: n.text || "" });
-    }
-  }
-  return out;
-}
-
-/**
- * Zbiera konta powiązane z profilem: oznaczone na zdjęciach + współautorzy +
- * @wzmianki w opisach, z liczbą wystąpień. Zwraca [{ username, count }].
- */
-function collectConnections(posts, own) {
-  const ownN = String(own || "").toLowerCase();
-  const freq = new Map();
-  const bump = (raw) => {
-    const a = String(raw || "").toLowerCase().replace(/^@/, "").trim();
-    if (!a || a === ownN || a.length < 2) return;
-    freq.set(a, (freq.get(a) || 0) + 1);
-  };
-  for (const p of posts) {
-    for (const t of p.tagged || []) bump(t);
-    for (const m of (p.caption || "").matchAll(/@([A-Za-z0-9._]{2,30})/g)) bump(m[1]);
-  }
-  return [...freq.entries()]
-    .map(([username, count]) => ({ username, count }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 20);
-}
-
-/**
- * Szacuje rozkład płci z próbki komentujących i lajkujących ostatnie posty.
- */
-function estimateAudience(user) {
-  const edges =
-    (user.edge_owner_to_timeline_media && user.edge_owner_to_timeline_media.edges) || [];
-
-  const seen = new Map(); // username -> fullName
-  for (const c of collectComments(user)) {
-    if (c.username) seen.set(c.username, c.fullName);
-  }
-  for (const { node } of edges) {
-    const likes =
-      (node.edge_media_preview_like && node.edge_media_preview_like.edges) || [];
-    for (const e of likes) {
-      const n = e.node;
-      if (n && n.username) seen.set(n.username, n.full_name || "");
-    }
-  }
-
-  let female = 0, male = 0, unknown = 0;
-  for (const [username, fullName] of seen) {
-    const g = guessGender(fullName, username).gender;
-    if (g === "female") female++;
-    else if (g === "male") male++;
-    else unknown++;
-  }
-
-  const sampleSize = seen.size;
-  return {
-    available: sampleSize > 0,
-    sampleSize,
-    female,
-    male,
-    unknown,
-    source: "próbka komentujących i lajkujących ostatnie posty (podgląd)",
-  };
-}
-
-function buildPayload(user, username) {
-  const posts = normalizePosts(user);
-  const comments = collectComments(user);
-  const profile = {
-    username: user.username || username,
-    fullName: user.full_name || "",
-    bio: user.biography || "",
-    externalUrl: user.external_url || "",
-    avatar: user.profile_pic_url_hd || user.profile_pic_url || "",
-    verified: !!user.is_verified,
-    private: !!user.is_private,
-    // Kategoria konta i flagi zawodowe/biznesowe nadawane w IG (autorytatywne).
-    category: user.category_name || user.business_category_name || "",
-    isBusiness: !!user.is_business_account,
-    isProfessional: !!user.is_professional_account,
-    followers: user.edge_followed_by ? user.edge_followed_by.count : null,
-    following: user.edge_follow ? user.edge_follow.count : null,
-    posts: user.edge_owner_to_timeline_media
-      ? user.edge_owner_to_timeline_media.count
-      : null,
-  };
-  const topics = classifyTopics(posts);
-  return {
-    ok: true,
-    profile,
-    posts,
-    connections: collectConnections(posts, profile.username),
-    audience: estimateAudience(user),
-    content: {
-      topics,
-      interests: deriveInterests(posts, topics, profile.username),
-      classification: classifyAccount(profile, topics, posts),
-      sentiment: commentSentiment(comments),
-    },
-  };
-}
-
-/* -------------------------------- Routing -------------------------------- */
-
-function sendJson(res, status, obj) {
+function sendJson(req, res, status, obj) {
   const body = JSON.stringify(obj);
   res.writeHead(status, {
     "Content-Type": "application/json; charset=utf-8",
-    "Access-Control-Allow-Origin": "*",
+    "Cache-Control": "no-store",
+    ...corsHeaders(req),
   });
   res.end(body);
 }
 
-function serveStatic(res, entry) {
-  fs.readFile(path.join(ROOT, entry.file), (err, data) => {
-    if (err) {
-      res.writeHead(404, { "Content-Type": "text/plain" });
-      res.end("404");
-      return;
-    }
-    res.writeHead(200, { "Content-Type": entry.type });
-    res.end(data);
-  });
+/** Normalizuje nazwę konta (akceptuje @nick, URL profilu) i waliduje znaki. */
+function parseUsername(raw) {
+  let v = String(raw || "").trim();
+  const m = v.match(/instagram\.com\/([^/?#]+)/i);
+  if (m) v = m[1];
+  v = v.replace(/^@+/, "").trim();
+  if (!v) throw new ApiError("BAD_REQUEST", { stage: "validate", message: "Brak nazwy konta (parametr username)." });
+  if (!/^[A-Za-z0-9._]{1,30}$/.test(v)) {
+    throw new ApiError("BAD_REQUEST", {
+      stage: "validate",
+      message: `„${v.slice(0, 40)}” nie jest poprawną nazwą konta Instagram.`,
+    });
+  }
+  return v;
 }
 
-/* --------------------- Most do modułu Python ----------------------------- */
-/*
- * Przekazuje graf (JSON) zbudowany w przeglądarce do mocniejszych metryk
- * social_analytics (centralności, ranking wpływu, społeczności). Odpala
- * `python3 -m social_analytics.bridge`, karmi stdin, czyta stdout. Gdy Pythona
- * lub modułu brak — zwraca czytelny błąd zamiast wywracać backend.
+function parseUserId(raw, required = false) {
+  if (!raw && !required) return undefined;
+  if (!/^\d{1,30}$/.test(raw || "")) throw new ApiError("BAD_REQUEST", { stage: "validate", message: "Niepoprawne ID konta Instagram." });
+  return raw;
+}
+
+function readSession(req, required) {
+  const s = sessionFromHeaders(req.headers);
+  if (!s && required) throw new ApiError("SESSION_MISSING", { stage: "validate" });
+  return s;
+}
+
+const wantsStream = (req, u) =>
+  u.searchParams.get("stream") === "1" || /text\/event-stream/.test(req.headers.accept || "");
+
+/**
+ * Uruchamia zadanie z trace. W trybie strumienia wysyła SSE:
+ *   event: trace  → kroki/logi/postęp (na żywo)
+ *   event: result → wynik
+ *   event: error  → ApiError.toJSON()
+ * W trybie zwykłym zwraca JSON z dołączonym `trace`.
  */
-function runGraphMetrics(payloadJson, timeoutMs = 20000) {
-  return new Promise((resolve) => {
-    // Pozwól wskazać interpreter przez env (np. w Electronie), domyślnie python3.
-    const bin = process.env.OSINT_PYTHON || "python3";
-    let child;
-    try {
-      // Uruchamiamy własny moduł projektu, więc cwd=ROOT musi być na ścieżce
-      // importów (bez -I). ROOT to katalog projektu — zaufany.
-      child = spawn(bin, ["-m", "social_analytics.bridge"], {
-        cwd: ROOT,
-        stdio: ["pipe", "pipe", "pipe"],
-      });
-    } catch {
-      return resolve({ ok: false, error: "Nie udało się uruchomić Pythona.", need: "python" });
-    }
-    let out = "", err = "", settled = false;
-    const done = (obj) => { if (!settled) { settled = true; resolve(obj); } };
-    const timer = setTimeout(() => { try { child.kill("SIGKILL"); } catch {}
-      done({ ok: false, error: "Analiza Pythona przekroczyła limit czasu." }); }, timeoutMs);
+async function runJob(req, res, u, job, fn) {
+  const stream = wantsStream(req, u);
+  let closed = false;
+  let heartbeat = null;
+  const write = (event, data) => {
+    if (closed) return;
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+  const trace = new Trace(job, stream ? (ev) => write("trace", ev) : null);
 
-    child.on("error", (e) => {
-      clearTimeout(timer);
-      // ENOENT = brak interpretera w PATH.
-      const msg = e && e.code === "ENOENT"
-        ? "Nie znaleziono interpretera Pythona (python3). Zainstaluj Pythona 3 i pakiet networkx."
-        : `Błąd uruchomienia Pythona: ${e.message}`;
-      done({ ok: false, error: msg, need: "python" });
+  if (stream) {
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-store",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+      ...corsHeaders(req),
     });
-    child.stdout.on("data", (d) => { out += d; });
-    child.stderr.on("data", (d) => { err += d; });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      if (code !== 0 && !out) {
-        return done({ ok: false, error: `Python zakończył się kodem ${code}. ${err.slice(0, 300)}` });
+    res.on("close", () => { closed = true; trace.cancelled = true; clearInterval(heartbeat); });
+    heartbeat = setInterval(() => { if (!closed) res.write(": ping\n\n"); }, 10000);
+    write("start", { job, traceId: trace.id, at: new Date().toISOString() });
+  }
+
+  const t0 = Date.now();
+  try {
+    const result = await fn(trace);
+    const ms = Date.now() - t0;
+    log(`${job} ok ${ms}ms`);
+    if (stream) { write("result", { ...result, ms }); res.end(); }
+    else sendJson(req, res, 200, { ...result, ms, trace: trace.events });
+  } catch (e) {
+    const err = toApiError(e, e && e.stage);
+    const ms = Date.now() - t0;
+    log(`${job} FAIL ${err.code} ${err.message} (${ms}ms)`);
+    const body = { ok: false, error: { ...err.toJSON(), job, ms, traceId: trace.id } };
+    if (stream) { write("error", body.error); res.end(); }
+    else sendJson(req, res, err.status, { ...body, trace: trace.events });
+  } finally {
+    clearInterval(heartbeat);
+  }
+}
+
+/* ------------------------------ Proxy obrazków ---------------------------- */
+
+async function proxyImage(req, res, u) {
+  const raw = u.searchParams.get("url") || "";
+  let target;
+  try { target = new URL(raw); } catch { target = null; }
+  if (!target || target.protocol !== "https:" || !IMG_HOSTS.test(target.hostname)) {
+    return sendJson(req, res, 400, { ok: false, error: new ApiError("IMAGE_BLOCKED", { stage: "image", detail: raw.slice(0, 200) }).toJSON() });
+  }
+  try {
+    const up = await fetch(target, {
+      headers: { "User-Agent": UA, Accept: "image/avif,image/webp,image/*,*/*;q=0.8" },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!up.ok) {
+      res.writeHead(up.status === 404 ? 404 : 502, { "Content-Type": "text/plain; charset=utf-8", ...corsHeaders(req) });
+      return res.end(`CDN IG: HTTP ${up.status}`);
+    }
+    const buf = Buffer.from(await up.arrayBuffer());
+    res.writeHead(200, {
+      "Content-Type": up.headers.get("content-type") || "image/jpeg",
+      "Content-Length": buf.length,
+      "Cache-Control": "private, max-age=3600",
+      "Cross-Origin-Resource-Policy": "cross-origin",
+      ...corsHeaders(req),
+    });
+    res.end(buf);
+  } catch (e) {
+    const err = toApiError(e, "image");
+    res.writeHead(err.status, { "Content-Type": "text/plain; charset=utf-8", ...corsHeaders(req) });
+    res.end(err.message);
+  }
+}
+
+/* ------------------------------ Pliki statyczne --------------------------- */
+
+function serveStatic(req, res, pathname) {
+  const root = path.resolve(STATIC_DIR);
+  let rel = decodeURIComponent(pathname).replace(/^\/+/, "");
+  if (!rel) rel = "index.html";
+  let file = path.resolve(root, rel);
+  if (!file.startsWith(root + path.sep) && file !== root) {
+    res.writeHead(403, { "Content-Type": "text/plain" });
+    return res.end("403");
+  }
+  fs.stat(file, (err, st) => {
+    // SPA: nieznane ścieżki bez rozszerzenia → index.html
+    if (err || !st.isFile()) {
+      if (path.extname(rel)) {
+        res.writeHead(404, { "Content-Type": "text/plain" });
+        return res.end("404");
       }
-      try { done(JSON.parse(out)); }
-      catch { done({ ok: false, error: "Nieczytelna odpowiedź modułu Python.", raw: out.slice(0, 300) }); }
+      file = path.join(root, "index.html");
+    }
+    fs.readFile(file, (e2, data) => {
+      if (e2) {
+        res.writeHead(503, { "Content-Type": "text/html; charset=utf-8" });
+        return res.end(
+          "<!doctype html><meta charset=utf-8><title>OSINT-IG</title>" +
+          "<body style='font-family:system-ui;padding:40px;background:#1c1917;color:#e7e5e4'>" +
+          "<h1>Front nie jest zbudowany</h1><p>Uruchom <code>npm run build</code>, a potem <code>npm start</code>. " +
+          "W trybie deweloperskim użyj <code>npm run dev</code>.</p></body>"
+        );
+      }
+      const ext = path.extname(file).toLowerCase();
+      const immutable = rel.startsWith("assets/");
+      res.writeHead(200, {
+        "Content-Type": MIME[ext] || "application/octet-stream",
+        "Cache-Control": immutable ? "public, max-age=31536000, immutable" : "no-cache",
+      });
+      res.end(data);
     });
-
-    child.stdin.on("error", () => {}); // ignoruj EPIPE, obsłuży to 'close'/'error'
-    child.stdin.end(payloadJson);
   });
 }
 
-// Czyta całe ciało żądania (z twardym limitem, by nie przyjąć gigabajtów).
-function readBody(req, maxBytes = 5 * 1024 * 1024) {
-  return new Promise((resolve, reject) => {
-    let size = 0; const chunks = [];
-    req.on("data", (c) => {
-      size += c.length;
-      if (size > maxBytes) { reject(new Error("Zbyt duże żądanie.")); req.destroy(); return; }
-      chunks.push(c);
-    });
-    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
-    req.on("error", reject);
-  });
-}
+/* --------------------------------- Routing -------------------------------- */
 
+const extensionBridge = createExtensionBridge({ allowedOrigins: ALLOWED_ORIGINS, sendJson });
 const server = http.createServer(async (req, res) => {
-  const u = new URL(req.url, `http://${req.headers.host}`);
-
-  if (u.pathname === "/api/profile") {
-    const username = (u.searchParams.get("username") || "").trim();
-    if (!username) return sendJson(res, 400, { ok: false, error: "Brak parametru username." });
-    try {
-      const user = await fetchInstagram(username, req.headers["x-ig-session"]);
-      return sendJson(res, 200, buildPayload(user, username));
-    } catch (e) {
-      return sendJson(res, e.status || 502, { ok: false, error: e.message });
+  const u = new URL(req.url, "http://localhost");
+  const t0 = Date.now();
+  res.on("finish", () => {
+    if (u.pathname.startsWith("/api/") && u.pathname !== "/api/img" && !u.pathname.startsWith("/api/extension/")) {
+      log(`${req.method} ${u.pathname}${u.search.replace(/url=[^&]+/, "url=…")} → ${res.statusCode} ${Date.now() - t0}ms`);
     }
+  });
+
+  try {
+    if (await extensionBridge.handle(req, res)) return;
+  } catch {
+    return sendJson(req, res, 400, { ok: false, message: "Błąd połączenia rozszerzenia." });
+  }
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, corsHeaders(req));
+    return res.end();
+  }
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    res.writeHead(405, { Allow: "GET, OPTIONS" });
+    return res.end();
   }
 
-  if (u.pathname === "/api/whoami") {
-    const session = req.headers["x-ig-session"];
-    if (!session) return sendJson(res, 401, { ok: false, error: "Brak sesji IG." });
-    try {
-      return sendJson(res, 200, await fetchWhoami(session));
-    } catch (e) {
-      return sendJson(res, e.status || 502, { ok: false, error: e.message });
+  try {
+    switch (u.pathname) {
+      case "/api/health":
+        return sendJson(req, res, 200, {
+          ok: true,
+          version: VERSION,
+          node: process.version,
+          platform: `${process.platform}-${process.arch}`,
+          pid: process.pid,
+          uptimeMs: Date.now() - STARTED,
+          host: HOST,
+          port: PORT,
+          sea: (() => { try { return require("node:sea").isSea(); } catch { return false; } })(),
+          cooldown: cooldownState(),
+          cache: { entries: profileCache.size, ttlMs: CACHE_TTL_MS },
+        });
+
+      case "/api/cooldown/reset":
+        resetCooldown();
+        log("Ręcznie zdjęto blokadę zapytań do IG.");
+        return sendJson(req, res, 200, { ok: true, cooldown: cooldownState() });
+
+      case "/api/cache/clear": {
+        const n = profileCache.size;
+        profileCache.clear();
+        return sendJson(req, res, 200, { ok: true, cleared: n });
+      }
+
+      case "/api/errors":
+        return sendJson(req, res, 200, { ok: true, codes: CODES });
+
+      case "/api/profile": {
+        const username = parseUsername(u.searchParams.get("username"));
+        const knownId = parseUserId(u.searchParams.get("userId"));
+        const session = readSession(req, false);
+        return runJob(req, res, u, `profile @${username}`, async (trace) => {
+          trace.log("info", `Analiza @${username}${session ? ` (z sesją IG: ${session.names.length} ciasteczek)` : " (anonimowo)"}`);
+          const key = cacheKey(username, session);
+          const hit = profileCache.get(key);
+          if (hit && u.searchParams.get("fresh") !== "1" && Date.now() - hit.at < CACHE_TTL_MS) {
+            const age = Math.round((Date.now() - hit.at) / 1000);
+            await trace.step("cache", "Wynik z pamięci podręcznej serwera", (s) => s.detail(`wiek ${age} s · bez zapytania do IG`));
+            return { ...hit.payload, cached: true, cacheAgeMs: Date.now() - hit.at };
+          }
+          const user = await fetchProfileUser(trace, username, session || undefined, knownId);
+          const payload = await buildPayloadTraced(user, username, trace);
+          profileCache.set(key, { at: Date.now(), payload });
+          if (profileCache.size > 300) profileCache.delete(profileCache.keys().next().value);
+          return payload;
+        });
+      }
+
+      case "/api/whoami": {
+        const session = readSession(req, true);
+        return runJob(req, res, u, "whoami", (trace) => fetchWhoami(trace, session));
+      }
+
+      case "/api/list": {
+        const username = parseUsername(u.searchParams.get("username"));
+        const type = u.searchParams.get("type") === "following" ? "following" : "followers";
+        const limit = parseInt(u.searchParams.get("limit"), 10) || 300;
+        const session = readSession(req, true);
+        return runJob(req, res, u, `${type} @${username}`, (trace) => {
+          trace.log("info", `Lista ${type === "following" ? "obserwowanych" : "obserwujących"} @${username}, limit ${limit}`);
+          return fetchFriendList(trace, username, type, session, limit);
+        });
+      }
+
+      case "/api/followers/page": {
+        const username = parseUsername(u.searchParams.get("username"));
+        const userId = parseUserId(u.searchParams.get("userId"), true);
+        const cursor = u.searchParams.get("cursor") || "";
+        if (cursor.length > 2048 || /[\r\n]/.test(cursor)) throw new ApiError("BAD_REQUEST", { stage: "validate" });
+        const count = Number(u.searchParams.get("count")) || 50;
+        const session = readSession(req, true);
+        return runJob(req, res, u, `followers @${username}`, (trace) => fetchFollowersPage(trace, username, userId, session, cursor, count));
+      }
+
+      case "/api/img":
+        return proxyImage(req, res, u);
+
+      default:
+        if (u.pathname.startsWith("/api/")) {
+          return sendJson(req, res, 404, {
+            ok: false,
+            error: { code: "NOT_FOUND", message: `Nieznany endpoint ${u.pathname}.`, hint: "Dostępne: /api/health, /api/profile, /api/list, /api/whoami, /api/img." },
+          });
+        }
+        return serveStatic(req, res, u.pathname);
     }
+  } catch (e) {
+    const err = toApiError(e, e && e.stage);
+    return sendJson(req, res, err.status, { ok: false, error: err.toJSON() });
   }
-
-  if (u.pathname === "/api/list") {
-    const username = (u.searchParams.get("username") || "").trim();
-    const type = u.searchParams.get("type") === "following" ? "following" : "followers";
-    const limit = parseInt(u.searchParams.get("limit"), 10) || 300;
-    // Opóźnienie między stronami sterowane z UI (jitter); clamp i tak po stronie fetchFriendList.
-    const delayMin = parseInt(u.searchParams.get("delayMin"), 10);
-    const delayMax = parseInt(u.searchParams.get("delayMax"), 10);
-    const session = req.headers["x-ig-session"];
-    if (!username) return sendJson(res, 400, { ok: false, error: "Brak parametru username." });
-    if (!session) return sendJson(res, 401, { ok: false, error: "Brak sesji IG. Ustaw cookie sessionid." });
-    try {
-      const data = await fetchFriendList(username, type, session, { limit, delayMin, delayMax });
-      return sendJson(res, 200, data);
-    } catch (e) {
-      return sendJson(res, e.status || 502, { ok: false, error: e.message });
-    }
-  }
-
-  if (u.pathname === "/api/graph-metrics") {
-    if (req.method !== "POST") return sendJson(res, 405, { ok: false, error: "Użyj POST." });
-    try {
-      const body = await readBody(req);
-      // Walidacja wstępna: ma być poprawny JSON z kontami.
-      let parsed;
-      try { parsed = JSON.parse(body || "{}"); }
-      catch { return sendJson(res, 400, { ok: false, error: "Ciało żądania nie jest poprawnym JSON-em." }); }
-      const result = await runGraphMetrics(JSON.stringify(parsed));
-      return sendJson(res, result.ok ? 200 : 502, result);
-    } catch (e) {
-      return sendJson(res, 400, { ok: false, error: e.message });
-    }
-  }
-
-  const entry = STATIC[u.pathname];
-  if (entry) return serveStatic(res, entry);
-
-  res.writeHead(404, { "Content-Type": "text/plain" });
-  res.end("404");
 });
 
-// Startuj serwer tylko przy bezpośrednim uruchomieniu (nie przy imporcie w teście).
-if (require.main === module) {
-  server.listen(PORT, () => {
-    console.log(`OSINT-IG działa na http://localhost:${PORT}`);
+/** Uruchamia nasłuch (wywoływane przy `node api/server.js` i z sidecara Tauri). */
+function start() {
+  const extensionPort = Number(process.env.OSINT_EXTENSION_PORT) || 17654;
+  extensionBridge.listener.on("error", (e) => {
+    log(`Połączenie rozszerzenia niedostępne na porcie ${extensionPort} (${e.code}). Zamknij inne instancje OSINT-IG.`);
   });
+  extensionBridge.listener.listen(extensionPort, "127.0.0.1");
+  server.on("close", () => extensionBridge.listener.close());
+  server.on("error", (e) => {
+    if (e.code === "EADDRINUSE") {
+      console.error(`[OSINT-IG] Port ${PORT} jest zajęty. Zamknij inną instancję albo ustaw PORT=…`);
+    } else {
+      console.error("[OSINT-IG] Błąd serwera:", e);
+    }
+    process.exit(1);
+  });
+  server.listen(PORT, HOST, () => {
+    // Linia czytana przez powłokę Tauri — nie zmieniaj formatu.
+    console.log(`OSINT-IG READY http://${HOST}:${PORT}`);
+    log(`OSINT-IG v${VERSION} · node ${process.version} · http://${HOST === "0.0.0.0" ? "localhost" : HOST}:${PORT}`);
+  });
+  // Powłoka Tauri zamyka stdin przy wyjściu: kończymy się razem z nią (bez sierot).
+  if (process.env.OSINT_SIDECAR === "1") {
+    process.stdin.on("end", () => process.exit(0));
+    process.stdin.resume();
+  }
 }
 
-module.exports = { server, buildPayload, estimateAudience, normalizePosts, collectConnections, usersFromResponse, clampDelays, randInt };
+// Startuj serwer tylko przy bezpośrednim uruchomieniu (nie przy imporcie w teście).
+if (require.main === module) start();
+
+module.exports = {
+  server, start, buildPayload, estimateAudience, normalizePosts, collectConnections, usersFromResponse, parseUsername,
+};

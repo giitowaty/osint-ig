@@ -11,6 +11,12 @@ if ! command -v node >/dev/null 2>&1; then
   exit 1
 fi
 
+if [ ! -f dist/index.html ]; then
+  echo "  Pierwsze uruchomienie: instaluję zależności i buduję interfejs (1-2 min)..."
+  if [ ! -d node_modules ]; then npm install --ignore-scripts --no-audit --no-fund || exit 1; fi
+  npm run build || exit 1
+fi
+
 echo ""
 echo "  Uruchamiam OSINT-IG na http://localhost:8000 ..."
 echo "  (zamknij to okno, aby zatrzymać program)"

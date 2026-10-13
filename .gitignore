@@ -1,12 +1,12 @@
 node_modules/
 package-lock.json
 *.log
-
-# Artefakty budowania Electrona
-dist/
-out/
-
 .DS_Store
 __pycache__/
 *.pyc
 .pytest_cache/
+dist/
+build/
+.impeccable/review/
+*.local
+release/

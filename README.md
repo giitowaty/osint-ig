@@ -1,11 +1,35 @@
-# OSINT-IG — analiza profilu Instagram
+# OSINT-IG — analiza profili Instagram i mapa powiązań
 
-Strona do analizy pojedynczego profilu Instagram: statystyki, ostatnie posty,
-podsumowanie treści oraz **szacunek płci odbiorców**. Front to czysty
-HTML/CSS/JS, a dane pobiera lekki **backend-proxy w Node** (bez zależności
-zewnętrznych), który obchodzi CORS i dokłada nagłówek wymagany przez Instagram.
+Narzędzie badawcze do analizy publicznych profili Instagram i powiązań między
+kontami. Działa jako **aplikacja web** (Vite + React + TypeScript + shadcn/ui,
+styl Sera) oraz **aplikacja desktop** (Tauri 2) z wbudowanym silnikiem. Dane
+pobiera lokalny **backend w Node bez zależności runtime**, który obchodzi CORS,
+dokłada nagłówki wymagane przez Instagram i strumieniuje postęp na żywo.
 
-## Funkcje
+## Nowe w 0.5
+
+- **Sesja zapisywana lokalnie** (IndexedDB): profile, listy, notatki i tagi wracają po odświeżeniu i restarcie.
+  Import i eksport całej sesji w *Narzędziach*.
+- **Kolejka wielu kont** (`Ctrl Shift K`): wklejasz listę, analiza idzie po kolei z pauzą (±30% rozrzutu),
+  a przy limicie IG kolejka sama czeka i wznawia.
+- **Ochrona przed limitem**: po odpowiedzi 429 serwer przez 60 s → 2 → 5 → 10 min nie pyta IG
+  (każde kolejne zapytanie przedłuża blokadę). Stan i ręczne zdjęcie blokady w *Aktywności*.
+- **Pamięć podręczna serwera** (15 min): ponowne otwarcie profilu nie pyta IG; *Odśwież* pobiera na nowo.
+- **Porównanie profili**: metryki obok siebie, wykres zaangażowania, macierz wspólnych powiązań par.
+- **Eksport sieci**: PNG, CSV (węzły + krawędzie), GEXF (Gephi), Cypher (Neo4j), JSON node-link.
+- **Rytm publikacji**: mapa dzień tygodnia × godzina.
+- **Notatki badawcze i tagi** przy każdym profilu (widoczne w sidebarze i porównaniu).
+
+## Nowe w 0.4
+
+- Przebudowa na React + shadcn/ui, układ na cały ekran z sidebarem i paletą poleceń (`Ctrl K`).
+- **Podgląd na żywo** (`Ctrl J`): każdy krok zadania (zapytanie do IG, normalizacja, analiza) z czasem i wynikiem.
+- **Szczegółowe błędy**: kod, etap, podpowiedź, odpowiedź IG (status, nagłówki, treść), przebieg zadania, kopiowanie diagnostyki.
+- **Graf powiązań** na canvasie (fizyka na żywo, zoom, przeciąganie, inspektor) dla wszystkich profili w sesji.
+- **Wpływ i centralność**: PageRank, pośredniość, stopień, wektor własny, ranking hubów i mostów (port z `social_analytics`).
+- Desktop: Tauri + silnik Node jako sidecar (jeden plik SEA), instalatory MSI/NSIS.
+
+## Funkcje (analiza profilu)
 
 - **Statystyki**: obserwujący, obserwowani, posty, ratio (obs. ÷ obserwuje).
 - **Analiza** — wnioski z danych: skala konta, interpretacja ratio, aktywność,
@@ -82,66 +106,77 @@ zewnętrznych), który obchodzi CORS i dokłada nagłówek wymagany przez Instag
 
 ## Uruchomienie
 
-Wymagany Node ≥ 18 (ma wbudowany `fetch`). Zero `npm install`.
+Wymagany **Node ≥ 20**. Desktop wymaga dodatkowo **Rust** (rustup) i, na Windows, WebView2 (jest w Windows 11).
 
 ```bash
-npm start           # albo: node api/server.js
-# otwórz http://localhost:8000
+npm install            # jednorazowo
+npm run dev            # serwer API :8000 + Vite :5173 (HMR) → http://127.0.0.1:5173
+npm run serve          # produkcja web: build + serwer → http://localhost:8000
+npm run desktop:dev    # aplikacja desktop w trybie deweloperskim
+npm run desktop:build  # instalatory → src-tauri/target/release/bundle/{msi,nsis}
+npm run build:exe      # pełny proces: testy + build + test .exe + release/ (lub dwuklik build-exe.bat)
+npm test               # testy backendu (bez sieci) + vitest (graf, eksport)
 ```
 
-Serwer serwuje jednocześnie front (`index.html`, `styles.css`, `app.js`) oraz
-API (`/api/profile`).
+Launchery `start-windows.bat` / `start-macos.command` / `start-linux.sh` przy pierwszym
+uruchomieniu same instalują zależności (bez skryptów instalacyjnych) i budują front.
 
-Testy logiki backendu (bez sieci):
+Serwer słucha tylko na `127.0.0.1` (zmienne: `PORT`, `HOST`, `OSINT_CACHE_TTL_MS`,
+`OSINT_IG_TIMEOUT_MS`, `OSINT_ALLOWED_ORIGINS`).
 
-```bash
-npm test
-```
+### Endpointy API
 
-## Aplikacja desktopowa (Electron)
+Analiza z połączoną sesją pobiera profil i 12 postów aktualnymi zapytaniami web GraphQL.
+Nie używa blokowanego `web_profile_info` dla zalogowanych kont. Rzeczywiste limity 429
+nadal zatrzymują zapytania. Komentarze i demografia są dostępne wyłącznie, gdy odpowiedź
+zawiera odpowiednią próbkę; aplikacja nie tworzy ich z brakujących danych.
 
-Tę samą aplikację można zbudować jako **program desktopowy** (ikona na pulpicie →
-okno z apką), który **nie wymaga od użytkownika instalowania Node ani niczego
-innego** — Electron ma własny runtime, a serwer `api/server.js` jest uruchamiany
-tym właśnie runtime'em jako proces potomny. Logika serwera pozostaje bez zmian;
-warstwa desktopowa to osobny katalog `electron/` (`main.js`, `preload.js`).
+| Endpoint | Rola |
+|----------|------|
+| `GET /api/profile?username=[&fresh=1][&stream=1]` | analiza profilu; `stream=1` → SSE z krokami na żywo |
+| `GET /api/list?username=&type=followers\|following` | lista przez sesję IG (nagłówek `x-ig-session`) |
+| `GET /api/whoami` | weryfikacja cookie sesji |
+| `GET /api/img?url=` | proxy miniatur (tylko CDN IG) |
+| `GET /api/health` | stan silnika, blokada IG, pamięć podręczna |
+| `GET /api/cooldown/reset`, `GET /api/cache/clear` | ręczne zdjęcie blokady / wyczyszczenie pamięci |
 
-Jak to działa: przy starcie aplikacja wybiera **wolny port** (preferowany 8000,
-a jeśli zajęty — losowy, przekazywany do serwera przez `PORT`), uruchamia serwer,
-**czeka (polling HTTP), aż odpowie**, i dopiero wtedy ładuje `http://127.0.0.1:<port>`
-w oknie. Przy zamknięciu okna proces serwera jest poprawnie ubijany.
+## Automatyczna analiza obserwujących
 
-### Uruchomienie lokalne (deweperskie)
+Otwórz publiczny profil w aplikacji i kliknij **Analizuj obserwujących**.
+Wybierz **Wszyscy dostępni** albo liczbę kont i uruchom analizę. Aplikacja pobiera
+kolejne strony obserwujących i analizuje konta po kolei, z ustawioną pauzą.
+Wyniki trafiają do sesji i grafu; gotowe profile i duplikaty są pomijane.
 
-```bash
-npm install          # jednorazowo: pobiera Electron + electron-builder
-npm run electron:dev # otwiera okno desktopowe z działającą apką
-```
+Kolejkę można wstrzymać, wznowić lub wyczyścić. Jej postęp i kursor listy zapisują
+się lokalnie; po restarcie kliknij **Wznów**. Po 429 aplikacja czeka, a po utracie
+sesji zatrzymuje pracę. Prywatne konta mają analizę dostępnych danych profilu,
+bez postów, których sesja nie może zobaczyć. Analiza nie uruchamia kolejnych
+analiz obserwujących znalezionych kont.
 
-### Budowanie instalatorów
+Instagram może ograniczyć widoczną listę niezależnie od liczby obserwujących.
+Panel oznacza taki wynik jako częściowy; **Wszyscy dostępni** obejmuje konta,
+które Instagram rzeczywiście udostępnił połączonej sesji.
 
-Gotowe binarki/instalatory lądują w katalogu **`dist/`**:
+## Podłączenie konta Instagram (ciasteczka)
 
-```bash
-npm run dist:win     # Windows: instalator NSIS (.exe) + wersja portable
-npm run dist:mac     # macOS:   .dmg
-npm run dist:linux   # Linux:   AppImage
-npm run dist         # bieżąca platforma (wszystkie skonfigurowane cele)
-```
+Zakładka **Sesja IG → Połącz konto**. Najprościej:
 
-Po instalacji aplikacja startuje **jednym kliknięciem, bez wymogu Node**.
+1. Zainstaluj rozszerzenie z folderu `extension/` (chrome://extensions lub edge://extensions → tryb dewelopera → „Załaduj rozpakowane”).
+2. Zaloguj się na instagram.com na **koncie pomocniczym** (nie głównym: to scraping, grozi blokadą).
+3. Uruchom aktualną aplikację OSINT-IG. Kliknij ikonę rozszerzenia → **„Połącz z aplikacją OSINT-IG”**.
+4. Aplikacja automatycznie odbierze sesję i sprawdzi konto. Wtyczka potwierdzi połączenie po udanej weryfikacji.
 
-> **Uwaga o cross-buildzie.** Instalatory na **Windows** i **macOS** najlepiej
-> budować **na docelowym systemie** — budowanie Windows/macOS z Linuksa bywa
-> zawodne (podpisywanie, natywne narzędzia, `wine`/`mono`). Linuksowy AppImage
-> buduje się na Linuksie. Najpewniejszy sposób na binarki dla wszystkich trzech
-> systemów naraz to **GitHub Actions** (matryca `windows`/`macos`/`ubuntu`) —
-> patrz `.github/workflows/build-desktop.yml`.
+Po aktualizacji odśwież rozszerzenie w chrome://extensions / edge://extensions.
+Połączenie korzysta z lokalnego portu `17654`; uruchom tylko jedną instancję aplikacji.
+Ręczny import przez schowek nadal jest dostępny.
 
-### `npm start` działa jak dotychczas
+Działa też bez rozszerzenia (zakładki **Wklej** i **Plik**): nagłówek `Cookie:` z DevTools, JSON z Cookie-Editor /
+EditThisCookie, plik `cookies.txt` (Netscape) albo sama wartość `sessionid`. Format rozpoznaje się sam; zostają tylko
+ciasteczka instagram.com z białej listy (`sessionid`, `csrftoken`, `ds_user_id`, `mid`, …), a token CSRF trafia do
+nagłówka zapytań jak w przeglądarce.
 
-Warstwa Electrona **niczego nie psuje**: `node api/server.js` / `npm start` dalej
-serwują apkę w przeglądarce na `http://localhost:8000` tak jak wcześniej.
+Ciasteczka leżą tylko na tym urządzeniu (localStorage / magazyn aplikacji), nie trafiają do zapisu sesji ani eksportów,
+serwer ich nie zapisuje ani nie loguje (w diagnostyce widać wyłącznie nazwy). „Odłącz i usuń” kasuje je od razu.
 
 ## Płeć odbiorców — jak to działa i czego NIE pokazuje
 
@@ -197,21 +232,32 @@ npm run build:names  # nadpisuje api/names-data.json
 
 ## Pliki
 
-| Plik             | Rola                                             |
-|------------------|--------------------------------------------------|
-| `index.html`     | struktura strony                                 |
-| `styles.css`     | wygląd (ciemny motyw)                             |
-| `app.js`         | front: render, analiza, eksport, historia        |
-| `network.js`     | zakładka Sieć: graf + bąbelki + panel sterowania  |
-| `collector.js`   | bookmarklet zbierający listę kont w przeglądarce  |
-| `session.js`     | opcjonalna sesja IG (cookie) do auto-pobierania    |
-| `api/server.js`     | backend-proxy + serwowanie frontu             |
-| `api/content.js`    | kategorie tematyczne + wydźwięk komentarzy     |
-| `api/names.js`      | heurystyka imię → płeć (ładuje słownik)       |
-| `api/names-data.json` | wygenerowany słownik imion (runtime)        |
-| `api/build-names.mjs` | generator słownika z otwartych zbiorów      |
-| `api/data/pesel/`     | źródłowe CSV z rejestru PESEL (build-time)  |
-| `api/test.js`       | testy parsowania i heurystyki (bez sieci)     |
-| `electron/main.js`  | warstwa desktopowa: start serwera + okno       |
-| `electron/preload.js` | bezpieczny preload (contextIsolation)       |
-| `build/icon.*`      | ikona aplikacji desktopowej                    |
+| Ścieżka | Rola |
+|---------|------|
+| `src/App.tsx`, `src/views/` | powłoka aplikacji i widoki (przegląd, treści, odbiorcy, graf, wpływ, porównanie, aktywność, sesja, narzędzia) |
+| `src/components/` | sidebar, dok aktywności, panel błędu, graf (canvas), kolejka, notatki, mapa publikacji; `ui/` = shadcn |
+| `src/lib/api.ts` | klient API: strumień SSE przez fetch, błędy z diagnostyką |
+| `src/lib/store.ts`, `actions.ts` | stan aplikacji, zadania, log, kolejka |
+| `src/lib/persist.ts` | zapis sesji w IndexedDB, import |
+| `src/lib/graph.ts` | model sieci + centralności i ranking wpływu |
+| `src/lib/exporters.ts` | CSV, GEXF, Cypher, JSON node-link |
+| `api/server.js` | routing, SSE, cache, proxy obrazków, statyczny front |
+| `api/instagram.js` | zapytania do IG z diagnostyką i ochroną przed limitem |
+| `api/errors.js`, `api/trace.js` | ustrukturyzowane błędy i kroki zadań |
+| `api/normalize.js`, `api/content.js`, `api/names.js` | normalizacja, tematyka/wydźwięk, heurystyka płci |
+| `src-tauri/` | powłoka desktop (Rust): start sidecara, log silnika do UI |
+| `scripts/` | `dev.mjs`, `build-sidecar.mjs` (Node SEA), `make-icon.mjs` |
+| `extension/` | rozszerzenie Chrome/Edge (MV3) |
+| `social_analytics/` | moduł Python (dashboard :8100), funkcje grafu przeniesione do aplikacji |
+
+
+### Duże zbiory kont
+
+- W kolejce można wkleić nazwy albo użyć **Importuj konta z TXT / CSV** (do 32 MB). Plik zawiera jedną nazwę lub link IG na wiersz, bez nagłówka. Gotowe wyniki i duplikaty są pomijane.
+- Kolejka i lista zapisanych profili pokazują po 50 pozycji na stronie. Pasek boczny pozwala wyszukiwać po nazwie konta, nazwie profilu lub tagu oraz filtrować po stanie analizy. Paleta Ctrl K pokazuje do 50 pasujących kont.
+- Profil i checkpoint kolejki są zapisywane razem w IndexedDB. Zapis przyrostowy dotyczy tylko zmienionych profili; po każdym ukończonym koncie kolejka czeka na zatwierdzenie zapisu. Stary zapis sesji migruje automatycznie. Po restarcie kolejka wraca wstrzymana — kliknij **Wznów**.
+- Po przejściowym błędzie połączenia kolejka ponawia konto z odstępami 5, 10 i 20 sekund, a przy utrzymującej się awarii zatrzymuje się bez usuwania oczekujących kont. HTTP 429 respektuje czas oczekiwania serwera. Błąd zapisu zatrzymuje pracę i pokazuje **Ponów zapis**. Ciasteczka i logi nie trafiają do checkpointu.
+- Graf pokazuje maksymalnie 400 węzłów i 4000 relacji, z pierwszeństwem otoczenia wybranego konta. Wyszukiwanie działa w całej sieci. Eksport JSON/CSV/GEXF/Cypher zawiera całą sieć; PNG przedstawia aktualny widok. Dla dużych sieci CSV/GEXF pomijają kosztowny ranking centralności. Ranking w interfejsie wyraźnie podaje zakres fragmentu.
+- Porównanie obejmuje do 6 profili na stronie; filtr i przyciski stron pozwalają przejść przez cały zbiór. Wspólne powiązania dotyczą wyświetlanych kont.
+
+Testy obciążeniowe obejmują 100 000 oczekujących nazw i 10 000 zapisanych profili syntetycznych, również po ponownym otwarciu interfejsu. Nie oznacza to wykonania 100 000 rzeczywistych analiz ani gwarancji dostępu do wszystkich obserwujących: tempo i dostępność danych nadal zależą od Instagrama, a pamięć i dysk od urządzenia. Wyniki pozostają lokalne; eksport i usunięcie sesji są dostępne w **Narzędziach**.

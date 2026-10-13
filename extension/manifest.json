@@ -1,10 +1,17 @@
 {
   "manifest_version": 3,
   "name": "OSINT-IG Collector",
-  "version": "0.1.0",
-  "description": "Pobiera listy obserwujących/obserwowanych z Twojej zalogowanej sesji Instagrama i kopiuje je do narzędzia OSINT-IG.",
-  "permissions": ["cookies", "clipboardWrite", "storage"],
-  "host_permissions": ["https://*.instagram.com/*"],
+  "version": "0.3.1",
+  "description": "Łączy konto Instagram z lokalną aplikacją OSINT-IG jednym kliknięciem i pobiera listy obserwujących.",
+  "permissions": [
+    "cookies",
+    "clipboardWrite",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://*.instagram.com/*",
+    "http://127.0.0.1/*"
+  ],
   "action": {
     "default_popup": "popup.html",
     "default_title": "OSINT-IG Collector"

@@ -22,10 +22,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover
         "Moduł centrality wymaga pakietu 'networkx' (pip install networkx[default])."
     ) from exc
 
-__all__ = [
-    "NodeInfluence", "MEASURES", "compute_centralities", "rank_influential",
-    "detect_communities",
-]
+__all__ = ["NodeInfluence", "MEASURES", "compute_centralities", "rank_influential"]
 
 MEASURES: tuple[str, ...] = ("pagerank", "betweenness", "degree", "eigenvector")
 
@@ -83,30 +80,6 @@ def compute_centralities(
     if unknown:
         raise ValueError(f"Nieznane miary centralności: {unknown}. Dozwolone: {list(MEASURES)}")
     return {m: _one_measure(graph, m, strict) for m in selected}
-
-
-def detect_communities(graph: "nx.DiGraph[str]") -> dict[str, int]:
-    """Wykrywa społeczności (skupiska) na nieskierowanej projekcji grafu.
-
-    Używa modularności zachłannej (greedy modularity). Gdy jest niedostępna lub
-    zawiedzie, degraduje do podziału na spójne składowe. Zwraca mapę
-    ``{węzeł: indeks_społeczności}`` (indeksy od 0). Dla pustego grafu — ``{}``.
-    """
-    if graph.number_of_nodes() == 0:
-        return {}
-    undirected = graph.to_undirected()
-    communities: list
-    try:
-        from networkx.algorithms.community import greedy_modularity_communities
-        communities = list(greedy_modularity_communities(undirected, weight="weight"))
-    except Exception:
-        # Fallback: każda spójna składowa to osobna społeczność.
-        communities = list(nx.connected_components(undirected))
-    mapping: dict[str, int] = {}
-    for idx, members in enumerate(communities):
-        for node in members:
-            mapping[node] = idx
-    return mapping
 
 
 def _normalize(values: dict[str, float]) -> dict[str, float]:

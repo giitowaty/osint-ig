@@ -86,30 +86,23 @@ def analyze(
     # Warstwa grafowa jest opcjonalna (wymaga networkx) — brak zależności nie
     # powinien wywracać metryk i tematyki.
     try:
-        from .centrality import detect_communities
-
         graph = adapter.to_social_graph()
         node_link = graph.to_node_link()
         influence = [n.to_dict() for n in graph.rank_influential(top=top_nodes)]
         influence_by_node = {item["node"]: item for item in influence}
-        communities = detect_communities(graph.graph)
-        num_communities = (max(communities.values()) + 1) if communities else 0
         for node in node_link.get("nodes", []):
             info = influence_by_node.get(node.get("id"))
             node["influence"] = info["influence"] if info else "peripheral"
             node["score"] = info["score"] if info else 0.0
-            node["community"] = communities.get(node.get("id"), -1)
         result.update({
             "graph": node_link,
             "influence": influence,
-            "communities": num_communities,
             "graph_available": True,
             "summary": {
                 "accounts": len(graph.accounts()),
                 "hashtags": len(graph.hashtags()),
                 "nodes": len(node_link.get("nodes", [])),
                 "edges": len(node_link.get("links", [])),
-                "communities": num_communities,
             },
         })
     except ModuleNotFoundError as exc:
