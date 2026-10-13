@@ -21,7 +21,14 @@ window.OsintNetwork = (function () {
   const DEF_MIN = 600, DEF_MAX = 1400, DEF_LIMIT = 300;
 
   let host = null, fetchFn = null, status = "", view = "graf";
+  let metrics = null;            // wynik analizy Pythona (centralności/społeczności) lub null
+  let metricsStatus = "";        // komunikat panelu analizy zaawansowanej
+  let communityMap = null;       // Map<username, indeks_społeczności> do kolorowania węzłów
   const accounts = new Map(); // username -> { connections:[{username,count}], following:[], followers:[] }
+
+  // Paleta społeczności (kolorowanie węzłów grafu). Brand-neutralna, czytelna w dark.
+  const COMMUNITY_COLORS = ["#4f9cf2", "#3fb950", "#e3a008", "#d2698f", "#9a7bf2",
+    "#56c7c0", "#e06c4f", "#8b93f0", "#6fbf73", "#c99a3f"];
 
   const autoOn = () => { try { return localStorage.getItem(AUTO_KEY) === "1"; } catch { return false; } };
   const setAuto = (v) => { try { localStorage.setItem(AUTO_KEY, v ? "1" : "0"); } catch {} };
@@ -122,6 +129,66 @@ window.OsintNetwork = (function () {
     status = `Gotowe — pobrano listy dla ${done} kont.`; render();
   }
 
+  /* --------------------- Analiza zaawansowana (Python) ------------------- */
+  // Składa graf z przeglądarki do kształtu akceptowanego przez social_analytics:
+  // każde konto -> { profile:{username}, connections:[{username,count}] }.
+  // Krawędzie z connections + following + followers łączymy w jedną listę (suma wag).
+  function buildGraphPayload() {
+    const out = [];
+    for (const [u, info] of accounts) {
+      const w = new Map(); // target -> waga
+      const bump = (name, n) => { const nm = norm(name); if (!nm || nm === u) return; w.set(nm, (w.get(nm) || 0) + n); };
+      for (const c of info.connections || []) bump(c.username, c.count || 1);
+      for (const f of info.following || []) bump(f, 1);
+      for (const f of info.followers || []) bump(f, 1);
+      out.push({
+        profile: { username: u },
+        posts: [],
+        connections: [...w.entries()].map(([username, count]) => ({ username, count })),
+      });
+    }
+    return { accounts: out };
+  }
+
+  async function advancedAnalysis() {
+    if (!accounts.size) { metricsStatus = "Najpierw dodaj konta do sieci."; render(); return; }
+    metricsStatus = "Liczę metryki w module Python…"; render();
+    try {
+      const res = await fetch("/api/graph-metrics", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildGraphPayload()),
+      });
+      const data = await res.json().catch(() => ({ ok: false, error: "Zła odpowiedź serwera." }));
+      if (!data.ok) {
+        metrics = null; communityMap = null;
+        metricsStatus = data.need === "python"
+          ? "Moduł Python niedostępny. Zainstaluj Pythona 3 oraz: pip install -r social_analytics/requirements.txt"
+          : `Analiza nieudana: ${data.error || "nieznany błąd"}`;
+        render(); return;
+      }
+      metrics = data.result;
+      if (!metrics.graph_available) {
+        communityMap = null;
+        metricsStatus = metrics.graph_error
+          ? `Warstwa grafowa niedostępna (${metrics.graph_error}). Doinstaluj: pip install networkx scipy`
+          : "Warstwa grafowa niedostępna — doinstaluj networkx.";
+        render(); return;
+      }
+      // Zbuduj mapę społeczności do kolorowania węzłów.
+      communityMap = new Map();
+      for (const n of (metrics.graph.nodes || [])) {
+        if (typeof n.community === "number" && n.community >= 0) communityMap.set(n.id, n.community);
+      }
+      const s = metrics.summary || {};
+      metricsStatus = `Gotowe: ${s.nodes || 0} węzłów, ${s.edges || 0} krawędzi, ${s.communities || 0} społeczności.`;
+      render();
+    } catch (e) {
+      metrics = null; communityMap = null;
+      metricsStatus = `Błąd połączenia z backendem: ${e.message}`; render();
+    }
+  }
+
   /* ----------------------------- Modele ---------------------------------- */
   function graphModel() {
     const nodes = new Map();
@@ -163,6 +230,30 @@ window.OsintNetwork = (function () {
       .sort((a, b) => b.value - a.value);
   }
 
+  // Panel wyników analizy zaawansowanej (ranking wpływu + społeczności).
+  const INFLUENCE_PL = { hub: "węzeł centralny", bridge: "łącznik (most)", connector: "pośrednik", peripheral: "peryferyjny" };
+  function metricsPanel() {
+    if (!metricsStatus && !metrics) return "";
+    let body = "";
+    if (metrics && metrics.graph_available) {
+      const top = (metrics.influence || []).slice(0, 8);
+      const rows = top.map((n) => {
+        const pct = Math.round((n.score || 0) * 100);
+        const comm = communityMap && communityMap.has(n.node) ? communityMap.get(n.node) : null;
+        const dot = comm === null ? "" : `<span class="comm-dot" style="background:${COMMUNITY_COLORS[comm % COMMUNITY_COLORS.length]}"></span>`;
+        return `<li>${dot}<span class="mi-name">@${esc(n.node)}</span>
+          <span class="mi-kind">${INFLUENCE_PL[n.influence] || esc(n.influence)}</span>
+          <span class="mi-bar"><span style="width:${pct}%"></span></span>
+          <span class="mi-score">${pct}%</span></li>`;
+      }).join("");
+      body = `<ol class="metrics-list">${rows || '<li class="muted">Brak danych do rankingu.</li>'}</ol>`;
+    }
+    return `<div class="metrics-box">
+      ${metricsStatus ? `<p class="muted" style="margin:0 0 8px">${esc(metricsStatus)}</p>` : ""}
+      ${body}
+    </div>`;
+  }
+
   /* ----------------------------- Render ---------------------------------- */
   function render() {
     if (!host) return;
@@ -201,6 +292,7 @@ window.OsintNetwork = (function () {
         <div class="net-panel-row">
           <strong>Panel sterowania:</strong>
           <button type="button" class="btn-ghost" id="net-batch">⤓ Pobierz listy wszystkich kont z sesji IG</button>
+          <button type="button" class="btn-ghost" id="net-metrics" title="Policz centralności, ranking wpływu i społeczności w module Python">🧠 Analiza zaawansowana</button>
           ${sessActive && window.OsintSession.account() ? `<span class="sess-badge">sesja: @${esc(window.OsintSession.account())}</span>` : ""}
         </div>
         <p class="net-opsec">⚠️ Pobieranie wielu list = większe ryzyko blokady konta. Ustaw wyższe opóźnienie i używaj osobnego konta „do zadań specjalnych", nie głównego.</p>
@@ -238,6 +330,7 @@ window.OsintNetwork = (function () {
         </div>
       </details>` : ""}
       ${status ? `<p class="muted" style="margin:8px 2px">${esc(status)}</p>` : ""}
+      ${metricsPanel()}
 
       <div class="g-canvas" id="net-canvas"></div>
       <div class="g-legend" id="net-legend"></div>`;
@@ -249,6 +342,8 @@ window.OsintNetwork = (function () {
     host.querySelectorAll(".vt").forEach((b) => b.addEventListener("click", () => { view = b.dataset.view; render(); }));
     const batch = host.querySelector("#net-batch");
     if (batch) batch.addEventListener("click", batchFetch);
+    const metricsBtn = host.querySelector("#net-metrics");
+    if (metricsBtn) metricsBtn.addEventListener("click", advancedAnalysis);
     const autoBox = host.querySelector("#net-auto");
     if (autoBox) autoBox.addEventListener("change", () => setAuto(autoBox.checked));
 
@@ -342,6 +437,10 @@ window.OsintNetwork = (function () {
       const g = document.createElementNS(SVGNS, "g"); g.style.cursor = "grab";
       const c = document.createElementNS(SVGNS, "circle"); c.setAttribute("r", String(gRadius(n)));
       c.setAttribute("class", n.analyzed ? "n-analyzed" : n.shared ? "n-shared" : "n-ref");
+      // Jeśli policzono społeczności — pokoloruj wypełnienie wg przynależności.
+      if (communityMap && communityMap.has(n.id)) {
+        c.setAttribute("fill", COMMUNITY_COLORS[communityMap.get(n.id) % COMMUNITY_COLORS.length]);
+      }
       const title = document.createElementNS(SVGNS, "title"); title.textContent = `@${n.id}${n.analyzed ? " (analizowane)" : ""}${n.shared ? " — wspólne" : ""}`;
       g.appendChild(c); g.appendChild(title);
       let label = null;

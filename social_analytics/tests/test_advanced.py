@@ -19,6 +19,7 @@ try:
         MEASURES,
         NodeInfluence,
         compute_centralities,
+        detect_communities,
         rank_influential,
     )
     HAS_NX = True
@@ -88,6 +89,20 @@ class CentralityTest(unittest.TestCase):
     def test_rank_top_must_be_positive(self) -> None:
         with self.assertRaises(ValueError):
             rank_influential(self._graph().graph, top=0)
+
+    def test_detect_communities_two_clusters(self) -> None:
+        # Dwa trójkąty połączone jednym łącznikiem -> co najmniej 2 społeczności,
+        # a węzły z tego samego trójkąta powinny trafić do tej samej grupy.
+        g = SocialGraph()
+        for s, t in [("a", "b"), ("b", "c"), ("c", "a"), ("d", "e"), ("e", "f"), ("f", "d")]:
+            g.add_mention(s, t)
+        g.add_mention("c", "d")
+        comm = detect_communities(g.graph)
+        self.assertEqual(set(comm), {"a", "b", "c", "d", "e", "f"})
+        self.assertGreaterEqual(max(comm.values()) + 1, 2)
+
+    def test_detect_communities_empty(self) -> None:
+        self.assertEqual(detect_communities(SocialGraph().graph), {})
 
     def test_node_influence_to_dict(self) -> None:
         r = rank_influential(self._graph().graph, top=1)[0]

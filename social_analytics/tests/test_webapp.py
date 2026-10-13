@@ -9,6 +9,7 @@ from __future__ import annotations
 import unittest
 
 from social_analytics import analyze
+from social_analytics import bridge
 
 try:
     from fastapi.testclient import TestClient
@@ -43,6 +44,37 @@ class PipelineTest(unittest.TestCase):
     def test_analyze_invalid_input(self) -> None:
         with self.assertRaises(TypeError):
             analyze(42)  # type: ignore[arg-type]
+
+    def test_analyze_has_communities(self) -> None:
+        res = analyze(SAMPLE)
+        # Klucz obecny niezależnie od tego, czy warstwa grafowa się policzyła.
+        if res["graph_available"]:
+            self.assertIn("communities", res)
+            self.assertIn("communities", res["summary"])
+            # Każdy węzeł grafu ma przypisaną społeczność (>=0) lub -1.
+            for node in res["graph"]["nodes"]:
+                self.assertIn("community", node)
+
+
+class BridgeTest(unittest.TestCase):
+    """Most CLI (stdin JSON -> stdout JSON) używany przez backend Node."""
+
+    def test_bridge_ok(self) -> None:
+        import json
+        out = bridge.run(json.dumps(SAMPLE))
+        self.assertTrue(out["ok"])
+        self.assertIn("result", out)
+        self.assertEqual(out["result"]["primary"]["profile"]["username"], "alice")
+
+    def test_bridge_bad_json(self) -> None:
+        out = bridge.run("{nie-json")
+        self.assertFalse(out["ok"])
+        self.assertIn("error", out)
+
+    def test_bridge_empty_input(self) -> None:
+        # Pusty stdin -> brak danych kont -> błąd walidacji z adaptera (nie wyjątek).
+        out = bridge.run("")
+        self.assertFalse(out["ok"])
 
 
 @unittest.skipUnless(HAS_WEB, "FastAPI niezainstalowany")

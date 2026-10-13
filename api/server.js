@@ -14,6 +14,7 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+const { spawn } = require("child_process");
 const { guessGender } = require("./names");
 const {
   classifyTopics, commentSentiment, deriveInterests, classifyAccount,
@@ -369,6 +370,71 @@ function serveStatic(res, entry) {
   });
 }
 
+/* --------------------- Most do modułu Python ----------------------------- */
+/*
+ * Przekazuje graf (JSON) zbudowany w przeglądarce do mocniejszych metryk
+ * social_analytics (centralności, ranking wpływu, społeczności). Odpala
+ * `python3 -m social_analytics.bridge`, karmi stdin, czyta stdout. Gdy Pythona
+ * lub modułu brak — zwraca czytelny błąd zamiast wywracać backend.
+ */
+function runGraphMetrics(payloadJson, timeoutMs = 20000) {
+  return new Promise((resolve) => {
+    // Pozwól wskazać interpreter przez env (np. w Electronie), domyślnie python3.
+    const bin = process.env.OSINT_PYTHON || "python3";
+    let child;
+    try {
+      // Uruchamiamy własny moduł projektu, więc cwd=ROOT musi być na ścieżce
+      // importów (bez -I). ROOT to katalog projektu — zaufany.
+      child = spawn(bin, ["-m", "social_analytics.bridge"], {
+        cwd: ROOT,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+    } catch {
+      return resolve({ ok: false, error: "Nie udało się uruchomić Pythona.", need: "python" });
+    }
+    let out = "", err = "", settled = false;
+    const done = (obj) => { if (!settled) { settled = true; resolve(obj); } };
+    const timer = setTimeout(() => { try { child.kill("SIGKILL"); } catch {}
+      done({ ok: false, error: "Analiza Pythona przekroczyła limit czasu." }); }, timeoutMs);
+
+    child.on("error", (e) => {
+      clearTimeout(timer);
+      // ENOENT = brak interpretera w PATH.
+      const msg = e && e.code === "ENOENT"
+        ? "Nie znaleziono interpretera Pythona (python3). Zainstaluj Pythona 3 i pakiet networkx."
+        : `Błąd uruchomienia Pythona: ${e.message}`;
+      done({ ok: false, error: msg, need: "python" });
+    });
+    child.stdout.on("data", (d) => { out += d; });
+    child.stderr.on("data", (d) => { err += d; });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (code !== 0 && !out) {
+        return done({ ok: false, error: `Python zakończył się kodem ${code}. ${err.slice(0, 300)}` });
+      }
+      try { done(JSON.parse(out)); }
+      catch { done({ ok: false, error: "Nieczytelna odpowiedź modułu Python.", raw: out.slice(0, 300) }); }
+    });
+
+    child.stdin.on("error", () => {}); // ignoruj EPIPE, obsłuży to 'close'/'error'
+    child.stdin.end(payloadJson);
+  });
+}
+
+// Czyta całe ciało żądania (z twardym limitem, by nie przyjąć gigabajtów).
+function readBody(req, maxBytes = 5 * 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    let size = 0; const chunks = [];
+    req.on("data", (c) => {
+      size += c.length;
+      if (size > maxBytes) { reject(new Error("Zbyt duże żądanie.")); req.destroy(); return; }
+      chunks.push(c);
+    });
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    req.on("error", reject);
+  });
+}
+
 const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, `http://${req.headers.host}`);
 
@@ -408,6 +474,21 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, data);
     } catch (e) {
       return sendJson(res, e.status || 502, { ok: false, error: e.message });
+    }
+  }
+
+  if (u.pathname === "/api/graph-metrics") {
+    if (req.method !== "POST") return sendJson(res, 405, { ok: false, error: "Użyj POST." });
+    try {
+      const body = await readBody(req);
+      // Walidacja wstępna: ma być poprawny JSON z kontami.
+      let parsed;
+      try { parsed = JSON.parse(body || "{}"); }
+      catch { return sendJson(res, 400, { ok: false, error: "Ciało żądania nie jest poprawnym JSON-em." }); }
+      const result = await runGraphMetrics(JSON.stringify(parsed));
+      return sendJson(res, result.ok ? 200 : 502, result);
+    } catch (e) {
+      return sendJson(res, 400, { ok: false, error: e.message });
     }
   }
 
