@@ -238,3 +238,59 @@ ok("payload: kategoria, klasyfikacja i zainteresowania", () => {
 });
 
 console.log(`\n${passed} testów przeszło ✓`);
+
+// --- błędy i walidacja (nowy backend) ---
+const { ApiError, toApiError } = require("./errors");
+const { parseUsername } = require("./server");
+let p2 = 0;
+const ok2 = (name, fn) => { fn(); p2++; console.log("  ✓ " + name); };
+ok2("parseUsername akceptuje @nick i link profilu", () => {
+  assert.strictEqual(parseUsername("@Jan.Kowalski"), "Jan.Kowalski");
+  assert.strictEqual(parseUsername("https://www.instagram.com/nasa/?hl=pl"), "nasa");
+});
+ok2("parseUsername odrzuca niedozwolone znaki z kodem BAD_REQUEST", () => {
+  assert.throws(() => parseUsername("zła nazwa"), (e) => e instanceof ApiError && e.code === "BAD_REQUEST");
+  assert.throws(() => parseUsername(""), (e) => e.code === "BAD_REQUEST");
+});
+ok2("toApiError rozpoznaje timeout i błąd sieci", () => {
+  const t = new Error("x"); t.name = "TimeoutError";
+  assert.strictEqual(toApiError(t).code, "TIMEOUT");
+  const n = new TypeError("fetch failed"); n.cause = { code: "ENOTFOUND", message: "getaddrinfo ENOTFOUND" };
+  assert.strictEqual(toApiError(n).code, "NETWORK_ERROR");
+  assert.strictEqual(toApiError(new Error("boom")).code, "INTERNAL");
+});
+ok2("ApiError.toJSON niesie kod, podpowiedź i status", () => {
+  const j = new ApiError("IG_RATE_LIMITED", { stage: "fetch" }).toJSON();
+  assert.strictEqual(j.status, 429);
+  assert.ok(j.hint && j.stage === "fetch");
+});
+console.log(`\n${p2} testów błędów przeszło ✓`);
+
+// --- ciasteczka sesji (x-ig-cookies) ---
+const { sessionFromHeaders } = require("./cookies");
+let p3 = 0;
+const ok3 = (name, fn) => { fn(); p3++; console.log("  ✓ " + name); };
+ok3("x-ig-cookies: komplet → nagłówek Cookie + CSRF + userId", () => {
+  const s = sessionFromHeaders({ "x-ig-cookies": "sessionid=123%3Aabc%3A9; csrftoken=TOK; ds_user_id=123; mid=Zz-1" });
+  assert.strictEqual(s.cookie, "sessionid=123%3Aabc%3A9; csrftoken=TOK; ds_user_id=123; mid=Zz-1");
+  assert.strictEqual(s.csrf, "TOK");
+  assert.strictEqual(s.userId, "123");
+});
+ok3("pomija ciasteczka spoza białej listy", () => {
+  const s = sessionFromHeaders({ "x-ig-cookies": "sessionid=1%3Ax; _ga=GA1; tracking=zzz" });
+  assert.deepStrictEqual(s.names, ["sessionid"]);
+});
+ok3("brak sessionid → SESSION_MISSING", () => {
+  assert.throws(() => sessionFromHeaders({ "x-ig-cookies": "csrftoken=a" }), (e) => e.code === "SESSION_MISSING");
+});
+ok3("wstrzyknięcie nagłówka (CR/LF, spacje) → BAD_REQUEST", () => {
+  assert.throws(() => sessionFromHeaders({ "x-ig-cookies": "sessionid=a\r\nX-Evil: 1" }), (e) => e.code === "BAD_REQUEST");
+  assert.throws(() => sessionFromHeaders({ "x-ig-session": "abc def" }), (e) => e.code === "BAD_REQUEST");
+});
+ok3("tryb zgodności: samo sessionid w x-ig-session", () => {
+  const s = sessionFromHeaders({ "x-ig-session": "55%3Aqq%3A1" });
+  assert.strictEqual(s.cookie, "sessionid=55%3Aqq%3A1");
+  assert.strictEqual(s.userId, "55");
+});
+ok3("brak nagłówków → null (analiza anonimowa)", () => assert.strictEqual(sessionFromHeaders({}), null));
+console.log(`\n${p3} testów ciasteczek przeszło ✓`);

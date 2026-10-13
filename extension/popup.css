@@ -41,3 +41,6 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
 .status.ok { color: var(--good); }
 .out { height: 110px; resize: vertical; font-size: 12px; font-family: ui-monospace, monospace; }
 .foot { font-size: 11.5px; color: var(--dim); margin: 8px 0 0; line-height: 1.4; }
+
+.hint { margin: 6px 0 10px; font-size: 12px; opacity: .75; line-height: 1.4; }
+.sep { border: 0; border-top: 1px solid rgba(255,255,255,.12); margin: 12px 0; }

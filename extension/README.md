@@ -1,42 +1,39 @@
-# OSINT-IG Collector — rozszerzenie przeglądarki
+# OSINT-IG Collector — rozszerzenie Chrome / Edge
 
-Małe rozszerzenie (Chrome/Edge, Manifest V3), które działa w **Twojej
-zalogowanej sesji Instagrama** i pozwala:
+## Instalacja lub aktualizacja
 
-- zobaczyć, na jakim koncie jesteś zalogowany,
-- **pobrać listę obserwujących / obserwowanych** dowolnego profilu i skopiować
-  ją do schowka (wklejasz w OSINT-IG → zakładka *Sieć* → „Wklej listę”),
-- **skopiować `sessionid`** jednym kliknięciem (gdybyś wolał tryb backendowy w
-  aplikacji, bez grzebania w DevTools).
+1. Otwórz chrome://extensions lub edge://extensions i włącz tryb programisty.
+2. Wybierz „Wczytaj rozpakowane” i wskaż folder extension/.
+3. Jeśli rozszerzenie jest już zainstalowane, kliknij jego przycisk odświeżenia.
+   Wersja 0.3.1 wymaga uprawnienia do lokalnego adresu 127.0.0.1.
 
-Zapytania idą bezpośrednio z Twojej przeglądarki do Instagrama (z Twoimi cookie);
-**nic nie jest wysyłane na żaden zewnętrzny serwer** — wynik trafia tylko do
-schowka i pola tekstowego w okienku rozszerzenia.
+## Połączenie jednym kliknięciem
 
-## Instalacja (tryb deweloperski)
+1. Uruchom aktualną aplikację OSINT-IG (desktop lub web).
+2. Zaloguj się na instagram.com w przeglądarce z rozszerzeniem.
+3. Kliknij ikonę rozszerzenia → **Połącz z aplikacją OSINT-IG**.
 
-1. Otwórz `chrome://extensions` (lub `edge://extensions`).
-2. Włącz **Tryb programisty / Developer mode** (prawy górny róg).
-3. Kliknij **Wczytaj rozpakowane / Load unpacked** i wskaż ten folder
-   (`extension/`).
-4. Przypnij ikonę rozszerzenia; kliknij ją, będąc zalogowanym na instagram.com.
+Aplikacja odbierze sesję, przejdzie do widoku Sesja IG i sprawdzi konto na
+Instagramie. Rozszerzenie pokaże „Połączono” dopiero po udanej weryfikacji.
+Wersja 0.3.1 sprawdza konto zapytaniem web viewer, ponieważ stary endpoint
+accounts/current_user może przekierowywać do HTML mimo poprawnej sesji.
+Nie trzeba kopiować ciasteczek ani wklejać ich ręcznie. Jeżeli Instagram odrzuci
+sesję, szczegóły są w aplikacji. Uruchom tylko jedną instancję OSINT-IG.
 
-## Użycie
+Połączenie używa wyłącznie lokalnego adresu 127.0.0.1:17654. Działa również
+z losowym portem silnika desktopowego. Paczka ciasteczek jest przechowywana
+w pamięci silnika najwyżej 60 sekund i usuwana zaraz po odbiorze przez aplikację;
+nie trafia do logów ani plików silnika. Aplikacja zapisuje sesję lokalnie jak przy
+ręcznym imporcie. „Odłącz i usuń” w aplikacji usuwa zapisane ciasteczka.
 
-1. Zaloguj się na Instagramie (najlepiej na koncie „do zadań specjalnych”).
-2. Kliknij ikonę rozszerzenia.
-3. Wpisz profil, wybierz *Obserwujący* / *Obserwowani*, ustaw limit → **Pobierz i
-   skopiuj**.
-4. Wklej wynik w OSINT-IG.
+Opcja **Kopiuj ciasteczka (ręcznie)** pozostaje dostępna do importu przez schowek.
 
-## Uwagi / ograniczenia
+## Pobieranie list
 
-- To **scraping przez zalogowaną sesję** — przeciw regulaminowi Instagrama i
-  **może skutkować ograniczeniem lub blokadą konta**. Nie używaj głównego konta,
-  nie pobieraj hurtowo, rób przerwy. Pobieranie ma wbudowane opóźnienia (~0,45 s
-  na stronę) i limit.
-- Instagram bywa kapryśny (limity 429, zmiany API) — przy błędzie odczekaj.
-- Działa dla kont, których listy są dla Ciebie widoczne (publiczne lub takie,
-  które obserwujesz).
-- Nie publikuj tego w Chrome Web Store bez przeglądu zgodności — to narzędzie do
-  użytku własnego/OSINT na własną odpowiedzialność.
+Podaj profil, wybierz Obserwujący / Obserwowani i limit, a następnie kliknij
+„Pobierz listę i skopiuj”. Wklej listę w aplikacji w widoku sieci.
+Zapytania idą z przeglądarki do Instagrama z Twoją sesją.
+
+Instagram może ograniczyć lub zablokować konto przy scrapingu; używaj konta
+pomocniczego, nie pobieraj hurtowo i rób przerwy. Dostępne są tylko listy,
+które to konto może zobaczyć. Rozszerzenie nie omija ograniczeń Instagrama.

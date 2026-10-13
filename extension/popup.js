@@ -6,7 +6,8 @@
  * Działa w kontekście rozszerzenia z host_permissions do instagram.com, więc
  * zapytania do IG idą z Twoimi cookie sesji (credentials: "include"). Pobiera
  * listy obserwujących/obserwowanych i kopiuje je do schowka. Nic nie wysyła na
- * żaden zewnętrzny serwer — wynik ląduje tylko w schowku i polu tekstowym.
+ * żaden zewnętrzny serwer — listy lądują w schowku i polu tekstowym.
+ * Przycisk Połącz przekazuje ciasteczka do lokalnej aplikacji OSINT-IG.
  * -------------------------------------------------------------------------- */
 
 const IG_APP_ID = "936619743392459";
@@ -35,11 +36,11 @@ async function igHeaders() {
 
 async function whoami() {
   try {
-    const r = await fetch("https://www.instagram.com/api/v1/accounts/current_user/?edit=false",
+    const r = await fetch("https://www.instagram.com/graphql/query/?query_hash=d6f4427fbe92d846298cf93df0b937d3&variables=%7B%7D",
       { headers: await igHeaders(), credentials: "include" });
     if (!r.ok) return "";
     const j = await r.json();
-    return (j && j.user && j.user.username) || "";
+    return (j && j.data && j.data.user && j.data.user.username) || "";
   } catch { return ""; }
 }
 
@@ -92,7 +93,7 @@ async function copyText(text) {
 
 (async () => {
   const me = await whoami();
-  $("who").innerHTML = me ? `zalogowano jako <strong>@${me}</strong>` : "nie zalogowano na Instagramie";
+  $("who").textContent = me ? `zalogowano jako @${me}` : "nie zalogowano na Instagramie";
 })();
 
 $("go").addEventListener("click", async () => {
@@ -112,6 +113,76 @@ $("go").addEventListener("click", async () => {
     setStatus(`${users.length} kont ${ok ? "skopiowano do schowka ✓" : "(skopiuj ręcznie z pola)"}`, "ok");
   } catch (e) {
     setStatus("Błąd: " + e.message, "err");
+  } finally { btn.disabled = false; }
+});
+
+/* ------------------- Paczka ciasteczek dla aplikacji --------------------- */
+
+// Ta sama biała lista co w aplikacji i na serwerze OSINT-IG.
+const ALLOWED = ["sessionid", "ds_user_id", "csrftoken", "mid", "ig_did", "ig_nrcb", "rur", "datr", "shbid", "shbts", "wd", "dpr"];
+
+async function cookieBundle() {
+  const all = await chrome.cookies.getAll({ domain: "instagram.com" });
+  const cookies = all
+    .filter((c) => ALLOWED.includes(c.name) && /(^|\.)instagram\.com$/.test(c.domain.replace(/^\./, "")))
+    .map((c) => ({ name: c.name, value: c.value, domain: c.domain, expirationDate: c.expirationDate }));
+  if (!cookies.some((c) => c.name === "sessionid")) throw new Error("Brak sessionid — zaloguj się na instagram.com w tej przeglądarce.");
+  const account = await whoami();
+  const json = JSON.stringify({ v: 1, source: "osint-ig-extension", exportedAt: new Date().toISOString(), account, cookies });
+  const b64 = btoa(unescape(encodeURIComponent(json))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return { text: "OSINTIG1:" + b64, count: cookies.length, account };
+}
+
+$("copycookies").addEventListener("click", async () => {
+  const btn = $("copycookies"); btn.disabled = true;
+  try {
+    const b = await cookieBundle();
+    let ok = false;
+    try { await navigator.clipboard.writeText(b.text); ok = true; } catch { ok = false; }
+    if (ok) {
+      setStatus(`Skopiowano ${b.count} ciasteczek${b.account ? " konta @" + b.account : ""} ✓ Wklej w OSINT-IG: Ctrl+V.`, "ok");
+    } else {
+      // Bez dostępu do schowka: pokaż do ręcznego skopiowania (wartość jest tajna — nie zostawiaj jej na widoku).
+      $("out").value = b.text; $("out").select();
+      setStatus("Skopiuj paczkę z pola poniżej (Ctrl+C), potem wyczyść pole.", "err");
+    }
+  } catch (e) {
+    setStatus("Błąd: " + e.message, "err");
+  } finally { btn.disabled = false; }
+});
+
+$("connect").addEventListener("click", async () => {
+  const btn = $("connect"); btn.disabled = true;
+  const base = "http://127.0.0.1:17654/api/extension";
+  const request = async (path, options = {}) => {
+    let res;
+    try {
+      res = await fetch(base + path, { ...options, signal: AbortSignal.timeout(5000),
+        headers: { "x-osint-bridge": "1", "x-osint-extension": chrome.runtime.id, ...options.headers } });
+    } catch {
+      throw new Error("Nie można połączyć z aplikacją. Uruchom aktualną aplikację OSINT-IG i spróbuj ponownie.");
+    }
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || "Połączenie z aplikacją nie powiodło się.");
+    return data;
+  };
+  try {
+    setStatus("Łączę z aplikacją OSINT-IG…");
+    const bundle = await cookieBundle();
+    const { id } = await request("/connect", { method: "POST", body: bundle.text,
+      headers: { "content-type": "text/plain" } });
+    setStatus("Aplikacja sprawdza sesję na Instagramie…");
+    const deadline = Date.now() + 60000;
+    while (Date.now() < deadline) {
+      await sleep(700);
+      const { state } = await request("/status", { headers: { "x-osint-transfer": id } });
+      if (state === "connected") { setStatus("Połączono z aplikacją OSINT-IG ✓", "ok"); return; }
+      if (state === "failed") throw new Error("Nie udało się potwierdzić sesji. Szczegóły znajdziesz w aplikacji → Sesja IG.");
+      if (state === "expired") break;
+    }
+    throw new Error("Aplikacja nie potwierdziła połączenia. Otwórz ją i spróbuj ponownie.");
+  } catch (e) {
+    setStatus(e.message, "err");
   } finally { btn.disabled = false; }
 });
 

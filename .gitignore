@@ -5,3 +5,8 @@ package-lock.json
 __pycache__/
 *.pyc
 .pytest_cache/
+dist/
+build/
+.impeccable/review/
+*.local
+release/

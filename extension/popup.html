@@ -16,6 +16,11 @@
   <p class="warn">⚠ Działa na Twojej zalogowanej sesji IG. To scraping — używaj z umiarem i
     <strong>nie na głównym koncie</strong>; nadużycie grozi blokadą.</p>
 
+  <button id="connect" class="btn">Połącz z aplikacją OSINT-IG</button>
+  <p class="hint">Otwórz aplikację OSINT-IG i kliknij Połącz. Sesja zostanie przekazana lokalnie i sprawdzona automatycznie.</p>
+  <button id="copycookies" class="btn ghost">Kopiuj ciasteczka (ręcznie)</button>
+  <hr class="sep" />
+
   <label class="fld">
     <span>Profil (username)</span>
     <input type="text" id="target" placeholder="np. natgeo" spellcheck="false" />
@@ -29,10 +34,10 @@
     <input type="number" id="limit" min="1" value="500" title="maksymalnie kont" />
   </div>
 
-  <button id="go" class="btn">Pobierz i skopiuj</button>
-  <button id="copysid" class="btn ghost">Kopiuj sessionid</button>
+  <button id="go" class="btn ghost">Pobierz listę i skopiuj</button>
+  <button id="copysid" class="btn ghost">Kopiuj sam sessionid</button>
 
-  <p id="status" class="status"></p>
+  <p id="status" class="status" role="status" aria-live="polite"></p>
   <textarea id="out" class="out" placeholder="Wynik pojawi się tu (i w schowku)…" readonly></textarea>
 
   <p class="foot">Wklej wynik w OSINT&#8209;IG → zakładka <strong>Sieć</strong> → „Wklej listę”.</p>
