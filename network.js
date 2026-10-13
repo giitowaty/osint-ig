@@ -12,19 +12,39 @@ window.OsintNetwork = (function () {
   const W = 760, H = 500;
 
   const AUTO_KEY = "osint-ig-autofetch";
+  const DMIN_KEY = "osint-ig-delay-min";
+  const DMAX_KEY = "osint-ig-delay-max";
+  const LIMIT_KEY = "osint-ig-limit";
+  // Granice suwaków — spójne z capem po stronie serwera (clampDelays w api/server.js).
+  const DELAY_FLOOR = 300, DELAY_CEIL = 15000, DELAY_STEP = 100;
+  const LIMIT_FLOOR = 50, LIMIT_CEIL = 2000, LIMIT_STEP = 50;
+  const DEF_MIN = 600, DEF_MAX = 1400, DEF_LIMIT = 300;
+
   let host = null, fetchFn = null, status = "", view = "graf";
   const accounts = new Map(); // username -> { connections:[{username,count}], following:[], followers:[] }
 
   const autoOn = () => { try { return localStorage.getItem(AUTO_KEY) === "1"; } catch { return false; } };
   const setAuto = (v) => { try { localStorage.setItem(AUTO_KEY, v ? "1" : "0"); } catch {} };
+
+  const readNum = (key, def) => { try { const v = parseInt(localStorage.getItem(key), 10); return Number.isFinite(v) ? v : def; } catch { return def; } };
+  const writeNum = (key, v) => { try { localStorage.setItem(key, String(v)); } catch {} };
+  // Zwraca aktualne ustawienia throttlingu z suwaków (z sanitizacją min<=max).
+  function getThrottle() {
+    let delayMin = Math.min(Math.max(readNum(DMIN_KEY, DEF_MIN), DELAY_FLOOR), DELAY_CEIL);
+    let delayMax = Math.min(Math.max(readNum(DMAX_KEY, DEF_MAX), DELAY_FLOOR), DELAY_CEIL);
+    if (delayMin > delayMax) { const t = delayMin; delayMin = delayMax; delayMax = t; }
+    const limit = Math.min(Math.max(readNum(LIMIT_KEY, DEF_LIMIT), LIMIT_FLOOR), LIMIT_CEIL);
+    return { delayMin, delayMax, limit };
+  }
   const sessionReady = () => !!(window.OsintSession && window.OsintSession.active());
 
   // Pobiera obie listy (obserwujący + obserwowani) danego konta z sesji IG.
   async function autoFetchFor(u) {
     if (!sessionReady()) return;
+    const t = getThrottle();
     for (const type of ["followers", "following"]) {
       try {
-        const r = await window.OsintSession.fetchList(u, type);
+        const r = await window.OsintSession.fetchList(u, type, t);
         const acc = accounts.get(u); if (acc) acc[type] = r.users || [];
       } catch (e) { status = `Auto-pobieranie @${u}: ${e.message}`; }
     }
@@ -87,12 +107,13 @@ window.OsintNetwork = (function () {
       status = "Najpierw ustaw sesję IG (panel 🔐 poniżej)."; render(); return;
     }
     const list = [...accounts.keys()];
+    const t = getThrottle();
     let done = 0;
     for (const u of list) {
       status = `Pobieram listy ${done + 1}/${list.length}: @${u}…`; render();
       for (const type of ["followers", "following"]) {
         try {
-          const r = await window.OsintSession.fetchList(u, type);
+          const r = await window.OsintSession.fetchList(u, type, t);
           accounts.get(u)[type] = r.users || [];
         } catch (e) { status = `Błąd przy @${u}: ${e.message}`; }
       }
@@ -155,6 +176,7 @@ window.OsintNetwork = (function () {
     }).join("");
     const opts = accList.map((u) => `<option value="${esc(u)}">@${esc(u)}</option>`).join("");
     const sessActive = window.OsintSession && window.OsintSession.active();
+    const thr = getThrottle(); // aktualne ustawienia suwaków (do wyrenderowania wartości)
 
     host.innerHTML = `
       <div class="net-head">
@@ -180,6 +202,18 @@ window.OsintNetwork = (function () {
           <strong>Panel sterowania:</strong>
           <button type="button" class="btn-ghost" id="net-batch">⤓ Pobierz listy wszystkich kont z sesji IG</button>
           ${sessActive && window.OsintSession.account() ? `<span class="sess-badge">sesja: @${esc(window.OsintSession.account())}</span>` : ""}
+        </div>
+        <p class="net-opsec">⚠️ Pobieranie wielu list = większe ryzyko blokady konta. Ustaw wyższe opóźnienie i używaj osobnego konta „do zadań specjalnych", nie głównego.</p>
+        <div class="net-throttle">
+          <label>Opóźnienie min <b id="net-dmin-v">${thr.delayMin} ms</b>
+            <input type="range" id="net-dmin" min="${DELAY_FLOOR}" max="${DELAY_CEIL}" step="${DELAY_STEP}" value="${thr.delayMin}" />
+          </label>
+          <label>Opóźnienie max <b id="net-dmax-v">${thr.delayMax} ms</b>
+            <input type="range" id="net-dmax" min="${DELAY_FLOOR}" max="${DELAY_CEIL}" step="${DELAY_STEP}" value="${thr.delayMax}" />
+          </label>
+          <label>Limit kont / konto <b id="net-limit-v">${thr.limit}</b>
+            <input type="range" id="net-limit" min="${LIMIT_FLOOR}" max="${LIMIT_CEIL}" step="${LIMIT_STEP}" value="${thr.limit}" />
+          </label>
         </div>
         <label class="net-auto" title="${sessActive ? "" : "Najpierw ustaw sesję IG poniżej"}">
           <input type="checkbox" id="net-auto" ${autoOn() ? "checked" : ""} ${sessActive ? "" : "disabled"} />
@@ -217,6 +251,21 @@ window.OsintNetwork = (function () {
     if (batch) batch.addEventListener("click", batchFetch);
     const autoBox = host.querySelector("#net-auto");
     if (autoBox) autoBox.addEventListener("change", () => setAuto(autoBox.checked));
+
+    // Suwaki throttlingu — zapis do localStorage + żywy podgląd wartości (bez re-renderu).
+    const dminEl = host.querySelector("#net-dmin");
+    const dmaxEl = host.querySelector("#net-dmax");
+    const limitEl = host.querySelector("#net-limit");
+    const bindSlider = (el, key, valId, suffix) => {
+      if (!el) return;
+      el.addEventListener("input", () => {
+        writeNum(key, parseInt(el.value, 10));
+        const v = host.querySelector(valId); if (v) v.textContent = el.value + suffix;
+      });
+    };
+    bindSlider(dminEl, DMIN_KEY, "#net-dmin-v", " ms");
+    bindSlider(dmaxEl, DMAX_KEY, "#net-dmax-v", " ms");
+    bindSlider(limitEl, LIMIT_KEY, "#net-limit-v", "");
     const apply = host.querySelector("#net-apply");
     if (apply) apply.addEventListener("click", () =>
       setList(host.querySelector("#net-acc").value, host.querySelector("#net-type").value, host.querySelector("#net-text").value));
@@ -225,7 +274,7 @@ window.OsintNetwork = (function () {
       if (!window.OsintSession || !window.OsintSession.active()) { status = "Najpierw ustaw sesję IG (panel 🔐 poniżej)."; render(); return; }
       const uu = host.querySelector("#net-acc").value, tt = host.querySelector("#net-type").value;
       status = `Pobieram listę dla @${uu}…`; render();
-      try { const r = await window.OsintSession.fetchList(uu, tt === "follower" ? "followers" : "following"); setList(uu, tt, (r.users || []).join("\n")); }
+      try { const r = await window.OsintSession.fetchList(uu, tt === "follower" ? "followers" : "following", getThrottle()); setList(uu, tt, (r.users || []).join("\n")); }
       catch (e) { status = `Nie udało się pobrać: ${e.message}`; render(); }
     });
 

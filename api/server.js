@@ -87,6 +87,24 @@ async function fetchInstagram(username, sessionid) {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Losowa liczba całkowita z zakresu [min, max] (jitter opóźnień).
+const randInt = (min, max) => min + Math.floor(Math.random() * (max - min + 1));
+
+// Twarde granice opóźnień między stronami (ms) — chronią przed samobójczym tempem.
+const DELAY_FLOOR = 300;     // poniżej tego ryzyko blokady rośnie gwałtownie
+const DELAY_CEIL = 15000;    // wyżej nie ma sensu
+const DELAY_DEFAULT_MIN = 600;
+const DELAY_DEFAULT_MAX = 1400;
+
+// Sprowadza podane min/max do bezpiecznego, poprawnego zakresu.
+function clampDelays(delayMin, delayMax) {
+  let lo = Number.isFinite(delayMin) ? delayMin : DELAY_DEFAULT_MIN;
+  let hi = Number.isFinite(delayMax) ? delayMax : DELAY_DEFAULT_MAX;
+  lo = Math.min(Math.max(lo, DELAY_FLOOR), DELAY_CEIL);
+  hi = Math.min(Math.max(hi, DELAY_FLOOR), DELAY_CEIL);
+  if (lo > hi) { const t = lo; lo = hi; hi = t; } // zamiana, gdy min > max
+  return { lo, hi };
+}
 
 // Wyłuskuje nazwy kont z odpowiedzi IG (friendships followers/following).
 function usersFromResponse(j) {
@@ -99,12 +117,13 @@ function usersFromResponse(j) {
  * podanego przez użytkownika. Scraping przez zalogowaną sesję — używane tylko
  * na żądanie, sessionid nie jest nigdzie zapisywany.
  */
-async function fetchFriendList(username, type, sessionid, limit) {
+async function fetchFriendList(username, type, sessionid, opts = {}) {
   const user = await fetchInstagram(username); // daje m.in. user.id
   const id = user.id;
   if (!id) { const e = new Error("Nie udało się ustalić ID konta."); e.status = 502; throw e; }
   const path = type === "following" ? "following" : "followers";
-  const cap = Math.min(Math.max(1, limit || 300), 2000);
+  const cap = Math.min(Math.max(1, opts.limit || 300), 2000);
+  const { lo, hi } = clampDelays(opts.delayMin, opts.delayMax); // losowy jitter opóźnień
   const PAGE = 50;
   const out = [];
   let maxId = "", pages = 0;
@@ -132,7 +151,7 @@ async function fetchFriendList(username, type, sessionid, limit) {
     for (const n of names) out.push(n);
     if (!j.next_max_id) break;
     maxId = j.next_max_id; pages++;
-    await sleep(700); // delikatnie, by nie wywołać limitów
+    await sleep(randInt(lo, hi)); // losowe opóźnienie — mniej regularne, trudniejsze do wykrycia
   }
   return { ok: true, username: user.username || username, type: path, count: out.length, users: out.slice(0, cap), truncated: out.length >= cap };
 }
@@ -378,11 +397,14 @@ const server = http.createServer(async (req, res) => {
     const username = (u.searchParams.get("username") || "").trim();
     const type = u.searchParams.get("type") === "following" ? "following" : "followers";
     const limit = parseInt(u.searchParams.get("limit"), 10) || 300;
+    // Opóźnienie między stronami sterowane z UI (jitter); clamp i tak po stronie fetchFriendList.
+    const delayMin = parseInt(u.searchParams.get("delayMin"), 10);
+    const delayMax = parseInt(u.searchParams.get("delayMax"), 10);
     const session = req.headers["x-ig-session"];
     if (!username) return sendJson(res, 400, { ok: false, error: "Brak parametru username." });
     if (!session) return sendJson(res, 401, { ok: false, error: "Brak sesji IG. Ustaw cookie sessionid." });
     try {
-      const data = await fetchFriendList(username, type, session, limit);
+      const data = await fetchFriendList(username, type, session, { limit, delayMin, delayMax });
       return sendJson(res, 200, data);
     } catch (e) {
       return sendJson(res, e.status || 502, { ok: false, error: e.message });
@@ -403,4 +425,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { server, buildPayload, estimateAudience, normalizePosts, collectConnections, usersFromResponse };
+module.exports = { server, buildPayload, estimateAudience, normalizePosts, collectConnections, usersFromResponse, clampDelays, randInt };

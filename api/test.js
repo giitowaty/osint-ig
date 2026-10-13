@@ -8,7 +8,7 @@ const { guessGender } = require("./names");
 const {
   classifyTopics, commentSentiment, scoreComment, deriveInterests, classifyAccount,
 } = require("./content");
-const { buildPayload, collectConnections, usersFromResponse } = require("./server");
+const { buildPayload, collectConnections, usersFromResponse, clampDelays, randInt } = require("./server");
 
 let passed = 0;
 function ok(name, fn) {
@@ -235,6 +235,29 @@ ok("payload: kategoria, klasyfikacja i zainteresowania", () => {
   const labels = payload.content.interests.map((i) => i.label);
   assert.ok(labels.includes("@partner_brand"), "oczek. @partner_brand (wzmianka) w " + labels.join(","));
   assert.ok(labels.includes("@canon_polska"), "oczek. @canon_polska (oznaczone) w " + labels.join(","));
+});
+
+// --- throttling: clampDelays i randInt (jitter opóźnień pobierania list) ---
+ok("clampDelays: domyślne przy braku danych", () => {
+  assert.deepStrictEqual(clampDelays(undefined, undefined), { lo: 600, hi: 1400 });
+});
+ok("clampDelays: podnosi zbyt niskie do dolnego progu (300)", () => {
+  assert.deepStrictEqual(clampDelays(0, 50), { lo: 300, hi: 300 });
+});
+ok("clampDelays: przycina zbyt wysokie do górnego capa (15000)", () => {
+  assert.deepStrictEqual(clampDelays(99999, 99999), { lo: 15000, hi: 15000 });
+});
+ok("clampDelays: zamienia min>max miejscami", () => {
+  assert.deepStrictEqual(clampDelays(2000, 800), { lo: 800, hi: 2000 });
+});
+ok("clampDelays: NaN -> domyślne", () => {
+  assert.deepStrictEqual(clampDelays(NaN, NaN), { lo: 600, hi: 1400 });
+});
+ok("randInt: wynik w zakresie [min,max]", () => {
+  for (let i = 0; i < 500; i++) {
+    const v = randInt(300, 1400);
+    assert.ok(v >= 300 && v <= 1400, "poza zakresem: " + v);
+  }
 });
 
 console.log(`\n${passed} testów przeszło ✓`);

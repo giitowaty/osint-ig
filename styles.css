@@ -422,6 +422,12 @@ body {
 .net-auto { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; color: var(--text-dim); cursor: pointer; }
 .net-auto input { width: auto; cursor: pointer; }
 .net-auto:has(input:disabled) { opacity: 0.55; cursor: not-allowed; }
+.net-opsec { margin: 10px 0 0; padding: 8px 10px; font-size: 12px; line-height: 1.4; color: var(--text-dim);
+  background: color-mix(in srgb, var(--warn, #e0a030) 12%, transparent); border: 1px solid color-mix(in srgb, var(--warn, #e0a030) 35%, transparent); border-radius: 8px; }
+.net-throttle { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px 16px; margin-top: 10px; }
+.net-throttle label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-dim); }
+.net-throttle label b { color: var(--text); font-weight: 600; }
+.net-throttle input[type="range"] { width: 100%; cursor: pointer; accent-color: var(--accent-2); }
 
 /* ---------- Graf powiązań ---------- */
 .g-form { display: flex; gap: 10px; margin: 0 0 12px; }

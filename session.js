@@ -34,10 +34,15 @@ window.OsintSession = (function () {
     return data.username;
   }
 
-  async function fetchList(username, type, limit) {
+  // opts = { limit, delayMin, delayMax } — wszystkie opcjonalne, wstecznie zgodne.
+  async function fetchList(username, type, opts = {}) {
     const session = get();
     if (!session) throw new Error("Brak sesji IG.");
-    const url = `/api/list?username=${encodeURIComponent(username)}&type=${encodeURIComponent(type)}${limit ? `&limit=${limit}` : ""}`;
+    const p = new URLSearchParams({ username, type });
+    if (opts.limit) p.set("limit", opts.limit);
+    if (Number.isFinite(opts.delayMin)) p.set("delayMin", opts.delayMin);
+    if (Number.isFinite(opts.delayMax)) p.set("delayMax", opts.delayMax);
+    const url = `/api/list?${p.toString()}`;
     const res = await fetch(url, { headers: { "x-ig-session": session } });
     const data = await res.json().catch(() => ({ ok: false, error: "Zła odpowiedź serwera." }));
     if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
