@@ -133,6 +133,18 @@ export interface SessionState {
   meta?: SessionMeta
 }
 
+/** Jedno konto w puli sesji IG. Pula dzieli pobieranie między konta (anti-ban). */
+export interface SessionEntry {
+  /** Stabilny klucz konta: userId (ds_user_id) gdy znany, inaczej tymczasowy. */
+  id: string
+  cookie: string
+  account: string
+  verifying: boolean
+  error?: ApiErrorBody
+  verifiedAt?: number
+  meta?: SessionMeta
+}
+
 export interface State {
   profiles: Record<string, ProfileEntry>
   order: string[]
@@ -141,7 +153,12 @@ export interface State {
   jobs: Job[]
   logs: LogEntry[]
   health: HealthState
+  /** Konto podstawowe = sessions[0] (utrzymywane w synchronie dla zgodności). */
   session: SessionState
+  /** Pula kont sesji IG (konto podstawowe + dodatkowe). */
+  sessions: SessionEntry[]
+  /** Przypisanie profil -> id konta z puli (strategia: jedno konto na profil). */
+  routing: Record<string, string>
   dockOpen: boolean
   autoLists: boolean
   history: string[]
@@ -157,6 +174,51 @@ const LS = {
   sessionMeta: "osint-ig-session-meta",
   dock: "osint-ig-dock",
   auto: "osint-ig-autofetch",
+  sessions: "osint-ig-sessions",
+}
+
+let nextTmpId = 1
+const tmpId = () => `tmp-${Date.now()}-${nextTmpId++}`
+
+/** Buduje stan pojedynczej (podstawowej) sesji z pierwszego konta puli. */
+function toPrimary(sessions: SessionEntry[]): SessionState {
+  const p = sessions[0]
+  if (!p) return { cookie: "", account: "", verifying: false }
+  return { cookie: p.cookie, account: p.account, verifying: p.verifying, error: p.error, verifiedAt: p.verifiedAt, meta: p.meta }
+}
+
+/** Wczytuje pulę kont z localStorage; w razie braku odtwarza ją z zapisu pojedynczej sesji (migracja). */
+function readSessions(): SessionEntry[] {
+  try {
+    const raw = JSON.parse(lsGet(LS.sessions) || "null")
+    if (Array.isArray(raw) && raw.length) {
+      return raw
+        .filter((e) => e && typeof e.cookie === "string" && e.cookie)
+        .map((e) => ({
+          id: String(e.id || e.meta?.userId || tmpId()),
+          cookie: migrateCookie(String(e.cookie)),
+          account: String(e.account || ""),
+          verifying: false,
+          verifiedAt: e.verifiedAt,
+          meta: e.meta,
+        }))
+    }
+  } catch {
+    /* niepoprawny zapis — spróbuj migracji z pojedynczej sesji */
+  }
+  const legacyCookie = migrateCookie(lsGet(LS.session) || "")
+  if (!legacyCookie) return []
+  const meta = readMeta()
+  return [{ id: meta?.userId || "primary", cookie: legacyCookie, account: lsGet(LS.sessionUser) || "", verifying: false, meta }]
+}
+
+/** Zapisuje pulę (i mirror konta podstawowego w starych kluczach dla zgodności). */
+function persistSessions(sessions: SessionEntry[]) {
+  lsSet(LS.sessions, sessions.length ? JSON.stringify(sessions) : null)
+  const p = sessions[0]
+  lsSet(LS.session, p?.cookie || null)
+  lsSet(LS.sessionUser, p?.account || null)
+  lsSet(LS.sessionMeta, p?.cookie && p.meta ? JSON.stringify(p.meta) : null)
 }
 
 function lsGet(key: string): string | null {
@@ -198,6 +260,8 @@ function readMeta(): SessionMeta | undefined {
   }
 }
 
+const initialSessions = readSessions()
+
 let state: State = {
   profiles: {},
   order: [],
@@ -206,12 +270,9 @@ let state: State = {
   jobs: [],
   logs: [],
   health: { status: "checking" },
-  session: {
-    cookie: migrateCookie(lsGet(LS.session) || ""),
-    account: lsGet(LS.sessionUser) || "",
-    meta: readMeta(),
-    verifying: false,
-  },
+  session: toPrimary(initialSessions),
+  sessions: initialSessions,
+  routing: {},
   // Na telefonie dok domyślnie zwinięty (zajmowałby pół ekranu).
   dockOpen: lsGet(LS.dock) ? lsGet(LS.dock) === "1" : typeof window === "undefined" || window.innerWidth >= 768,
   autoLists: lsGet(LS.auto) === "1",
@@ -408,12 +469,86 @@ export function subscribeStore(l: () => void) {
   return subscribe(l)
 }
 
+/** Zapisuje pulę do stanu + localStorage i synchronizuje konto podstawowe. */
+function commitSessions(sessions: SessionEntry[]) {
+  persistSessions(sessions)
+  setState({ sessions, session: toPrimary(sessions) })
+}
+
+/**
+ * Zgodność wstecz: zmienia konto PODSTAWOWE (sessions[0]). Gdy puli nie ma,
+ * a podano cookie — tworzy pierwsze konto. Pusty cookie bez konta = czyszczenie.
+ */
 export function setSession(patch: Partial<SessionState>) {
-  setState((s) => {
-    const session = { ...s.session, ...patch }
-    lsSet(LS.session, session.cookie || null)
-    lsSet(LS.sessionUser, session.account || null)
-    lsSet(LS.sessionMeta, session.cookie && session.meta ? JSON.stringify(session.meta) : null)
-    return { session }
+  const sessions = [...getState().sessions]
+  const prev = sessions[0]
+  if (!prev) {
+    if (!patch.cookie) return
+    sessions[0] = {
+      id: patch.meta?.userId || "primary",
+      cookie: patch.cookie, account: patch.account || "", verifying: patch.verifying || false,
+      error: patch.error, verifiedAt: patch.verifiedAt, meta: patch.meta,
+    }
+  } else {
+    const merged = { ...prev, ...patch }
+    sessions[0] = { ...merged, id: merged.meta?.userId || prev.id }
+  }
+  commitSessions(sessions)
+}
+
+/** Dodaje puste konto do puli (do wypełnienia ciasteczkami) i zwraca jego id. */
+export function addSessionSlot(): string {
+  const id = tmpId()
+  commitSessions([...getState().sessions, { id, cookie: "", account: "", verifying: false }])
+  return id
+}
+
+/** Usuwa konto z puli i czyści przypisania profili do tego konta. */
+export function removeSession(id: string) {
+  const sessions = getState().sessions.filter((e) => e.id !== id)
+  const routing = { ...getState().routing }
+  for (const [u, sid] of Object.entries(routing)) if (sid === id) delete routing[u]
+  setState({ routing })
+  commitSessions(sessions)
+}
+
+/** Aktualizuje jedno konto w puli (po id). Zmiana meta.userId aktualizuje id. */
+export function patchSessionEntry(id: string, patch: Partial<SessionEntry>) {
+  const sessions = getState().sessions.map((e) => {
+    if (e.id !== id) return e
+    const merged = { ...e, ...patch }
+    const newId = merged.meta?.userId || merged.id
+    return { ...merged, id: newId }
   })
+  commitSessions(sessions)
+}
+
+/** Konta puli gotowe do pracy: mają cookie i nie są w cooldownie (wg health). */
+function usableSessions(): SessionEntry[] {
+  const { sessions, health } = getState()
+  const accounts = health.info?.cooldown?.accounts
+  return sessions.filter((e) => e.cookie && !accounts?.[e.id]?.active)
+}
+
+/**
+ * Wybiera konto z puli dla danego profilu (strategia: jedno konto na profil).
+ * Trzyma się raz przypisanego konta; jeśli ono w cooldownie/zniknęło — bierze
+ * następne round-robin (najmniej obciążone). Zwraca cookie albo undefined.
+ */
+export function cookieForProfile(username: string): string | undefined {
+  const { sessions, routing } = getState()
+  const pool = sessions.filter((e) => e.cookie)
+  if (!pool.length) return undefined
+  const usable = usableSessions()
+  const prevId = routing[username]
+  const prev = usable.find((e) => e.id === prevId)
+  if (prev) return prev.cookie
+  // Brak przypisania lub konto niedostępne: round-robin po najmniej obciążonych.
+  const pick = (usable.length ? usable : pool)
+  const counts = new Map<string, number>(pick.map((e) => [e.id, 0]))
+  for (const sid of Object.values(routing)) if (counts.has(sid)) counts.set(sid, counts.get(sid)! + 1)
+  let best = pick[0]
+  for (const e of pick) if ((counts.get(e.id) ?? 0) < (counts.get(best.id) ?? 0)) best = e
+  setState({ routing: { ...routing, [username]: best.id } })
+  return best.cookie
 }

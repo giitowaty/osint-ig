@@ -16,6 +16,10 @@ import {
   PROFILE_VIEWS,
   patchQueue,
   cancelJob,
+  cookieForProfile,
+  addSessionSlot,
+  removeSession,
+  patchSessionEntry,
 } from "./store"
 import { parseCookieInput, toHeader, type CookieBundle } from "./cookies"
 import { apiBase } from "./runtime"
@@ -67,14 +71,15 @@ export async function analyze(raw: string, opts: { focus?: boolean; fresh?: bool
     const view = getState().view
     navigate(PROFILE_VIEWS.includes(view) ? view : "overview", username)
   }
-  const { session } = getState()
+  // Pula kont: dla tego profilu wybierz konto (jedno konto na profil).
+  const cookie = cookieForProfile(username)
 
   try {
     const data = await streamJob<ProfilePayload>(
       `/api/profile?username=${encodeURIComponent(username)}${opts.fresh ? "&fresh=1" : ""}${opts.userId ? `&userId=${encodeURIComponent(opts.userId)}` : ""}`,
       {
         signal,
-        session: session.cookie || undefined,
+        session: cookie || undefined,
         onEvent: (ev) => jobEvent(id, ev),
         onStart: (s) => setJobTrace(id, s.traceId),
       }
@@ -150,7 +155,7 @@ async function loadFollowersPage(epoch: number) {
   try {
     const remaining = source.limit ? source.limit - source.discovered : 50
     const path = `/api/followers/page?username=${encodeURIComponent(source.username)}&userId=${source.userId}&count=${Math.min(50, remaining)}${source.cursor ? `&cursor=${encodeURIComponent(source.cursor)}` : ""}`
-    const page = await streamJob<FollowersPage>(path, { signal, session: s.session.cookie,
+    const page = await streamJob<FollowersPage>(path, { signal, session: cookieForProfile(source.username),
       onEvent: (ev) => jobEvent(id, ev), onStart: (info) => setJobTrace(id, info.traceId) })
     if (epoch !== queueEpoch || getState().queue.paused || signal.aborted) {
       finishJob(id, "cancelled")
@@ -372,7 +377,6 @@ export async function clearServerCache() {
 
 /** Pobiera listę obserwujących/obserwowanych przez sesję IG. */
 export async function fetchList(username: string, type: "followers" | "following", limit = 300) {
-  const { session } = getState()
   const label = `${type === "followers" ? "Obserwujący" : "Obserwowani"} @${username}`
   const { id, signal } = startJob("list", label, username)
   try {
@@ -380,7 +384,7 @@ export async function fetchList(username: string, type: "followers" | "following
       `/api/list?username=${encodeURIComponent(username)}&type=${type}&limit=${limit}`,
       {
         signal,
-        session: session.cookie || undefined,
+        session: cookieForProfile(username) || undefined,
         onEvent: (ev) => jobEvent(id, ev),
         onStart: (s) => setJobTrace(id, s.traceId),
       }
@@ -473,6 +477,60 @@ export function clearSession() {
   if (getState().queue.followersSource) pauseQueue()
   setSession({ cookie: "", account: "", error: undefined, verifiedAt: undefined, meta: undefined })
   log("info", "app", "Usunięto ciasteczka sesji IG z tego urządzenia.")
+}
+
+/* ----------------------------- Pula kont -------------------------------- */
+
+/** Dodaje puste konto do puli i zwraca jego id (do wypełnienia ciasteczkami). */
+export function addAccount(): string {
+  return addSessionSlot()
+}
+
+/** Usuwa konto z puli (i jego przypisania profili). */
+export function removeAccount(id: string) {
+  removeSession(id)
+  log("info", "app", "Usunięto konto z puli sesji IG.")
+}
+
+/** Podłącza ciasteczka do KONKRETNEGO konta puli i od razu je weryfikuje. */
+export async function connectCookiesTo(id: string, input: string | CookieBundle) {
+  const b = typeof input === "string" ? parseCookieInput(input) : input
+  patchSessionEntry(id, {
+    cookie: toHeader(b),
+    account: b.account ?? "",
+    error: undefined,
+    verifiedAt: undefined,
+    meta: { names: Object.keys(b.cookies), expires: b.expires.sessionid, format: b.format, importedAt: Date.now() },
+  })
+  log("info", "app", `Zapisano ${Object.keys(b.cookies).length} ciasteczek IG (${b.format}). Sprawdzam konto…`)
+  await verifySessionEntry(id)
+}
+
+/** Weryfikuje jedno konto puli (whoami) i aktualizuje jego dane/status. */
+export async function verifySessionEntry(id: string) {
+  const entry = getState().sessions.find((e) => e.id === id)
+  if (!entry?.cookie) return
+  patchSessionEntry(id, { verifying: true, error: undefined })
+  const { id: jobId, signal } = startJob("whoami", "Weryfikacja konta IG")
+  try {
+    const who = await streamJob<Whoami>("/api/whoami", {
+      signal,
+      session: entry.cookie,
+      onEvent: (ev) => jobEvent(jobId, ev),
+    })
+    patchSessionEntry(id, {
+      account: who.username,
+      verifying: false,
+      verifiedAt: Date.now(),
+      meta: { names: who.cookies ?? entry.meta?.names ?? [], ...entry.meta, avatar: who.avatar, userId: who.userId },
+    })
+    finishJob(jobId, "ok")
+    log("ok", "app", `Konto IG: zalogowano jako @${who.username}`)
+  } catch (e) {
+    const body = asBody(e)
+    patchSessionEntry(id, { verifying: false, account: "", error: body })
+    finishJob(jobId, "error", body)
+  }
 }
 
 /** Sprawdza stan lokalnego serwera; zapisuje opóźnienie. */

@@ -157,7 +157,14 @@ export interface Health {
   host: string
   port: number
   sea: boolean
-  cooldown?: { active: boolean; remainingMs: number; strikes: number; lastAt: string | null }
+  cooldown?: {
+    active: boolean
+    remainingMs: number
+    strikes: number
+    lastAt: string | null
+    /** Stan per konto (klucz = userId / "anon"); obecne przy puli kont. */
+    accounts?: Record<string, { active: boolean; remainingMs: number; strikes: number; lastAt: string | null }>
+  }
   cache?: { entries: number; ttlMs: number }
 }
 

@@ -25,7 +25,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { clearSession, connectCookies, verifySession } from "@/lib/actions"
+import { addAccount, clearSession, connectCookies, connectCookiesTo, removeAccount, verifySession, verifySessionEntry } from "@/lib/actions"
 import { CookieParseError, FORMAT_LABEL, mask, parseCookieInput, type CookieBundle } from "@/lib/cookies"
 import { isTauri } from "@/lib/runtime"
 import { setAutoLists, useStore } from "@/lib/store"
@@ -282,6 +282,99 @@ function ExtensionTab() {
   )
 }
 
+/* ------------------------------- Pula kont -------------------------------- */
+
+function AccountPool() {
+  const sessions = useStore((s) => s.sessions)
+  const health = useStore((s) => s.health)
+  useNow(false) // odświeżanie licznika cooldownu
+  const cdAccounts = health.info?.cooldown?.accounts
+  const [drafts, setDrafts] = React.useState<Record<string, string>>({})
+
+  const connect = async (id: string) => {
+    const text = (drafts[id] || "").trim()
+    if (!text) return
+    try {
+      await connectCookiesTo(id, text)
+      setDrafts((d) => {
+        const n = { ...d }
+        delete n[id]
+        return n
+      })
+    } catch (e) {
+      toast.error(e instanceof CookieParseError ? e.message : "Nie udało się odczytać ciasteczek.")
+    }
+  }
+
+  return (
+    <Panel
+      title="Pula kont (dzielenie pracy)"
+      description="Dodaj kilka kont — aplikacja rozdziela pobieranie między nie (jedno konto na profil), żeby żadne nie przegrzało się. Limit (429) na jednym koncie nie blokuje pozostałych."
+    >
+      <div className="flex flex-col divide-y border">
+        {sessions.length === 0 && (
+          <p className="p-3 text-sm text-muted-foreground">Brak kont w puli. Dodaj pierwsze poniżej.</p>
+        )}
+        {sessions.map((e, i) => {
+          const cd = cdAccounts?.[e.meta?.userId ?? ""] ?? cdAccounts?.[e.id]
+          const cooling = cd?.active ? Math.ceil(cd.remainingMs / 1000) : 0
+          return (
+            <div key={e.id} className="flex flex-col gap-2 p-3">
+              <div className="flex items-center gap-2">
+                <span className="tnum text-xs text-muted-foreground">{i + 1}.</span>
+                <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                  {e.account ? `@${e.account}` : e.cookie ? "konto niezweryfikowane" : "nowe konto — wklej ciasteczka"}
+                </span>
+                {e.verifying && <Spinner className="size-3.5" />}
+                {!e.verifying && e.account && cooling > 0 && (
+                  <span className="text-[11px] text-amber-500">● cooldown {cooling}s</span>
+                )}
+                {!e.verifying && e.account && cooling === 0 && (
+                  <span className="text-[11px] text-status-good">● gotowe</span>
+                )}
+                {!e.verifying && !e.account && e.cookie && (
+                  <span className="text-[11px] text-destructive">● {e.error ? "błąd" : "niezweryfikowane"}</span>
+                )}
+                {e.cookie && (
+                  <Button size="xs" variant="ghost" onClick={() => void verifySessionEntry(e.id)} disabled={e.verifying}>
+                    Sprawdź
+                  </Button>
+                )}
+                <Button size="icon-xs" variant="ghost" onClick={() => removeAccount(e.id)} aria-label="Usuń konto">
+                  <Trash2Icon />
+                </Button>
+              </div>
+              {!e.cookie && (
+                <div className="flex flex-col gap-2">
+                  <Textarea
+                    rows={2}
+                    value={drafts[e.id] || ""}
+                    onChange={(ev) => setDrafts((d) => ({ ...d, [e.id]: ev.target.value }))}
+                    placeholder="Wklej ciasteczka IG: sessionid=…; ds_user_id=…; csrftoken=…"
+                    className="font-mono text-xs"
+                  />
+                  <Button size="xs" className="w-fit" onClick={() => void connect(e.id)} disabled={!(drafts[e.id] || "").trim()}>
+                    Podłącz i sprawdź
+                  </Button>
+                </div>
+              )}
+              {e.error && <p className="text-xs text-destructive">{e.error.message}</p>}
+            </div>
+          )
+        })}
+      </div>
+      <Button size="xs" variant="outline" className="mt-3 w-fit" onClick={() => addAccount()}>
+        <PlugZapIcon data-icon="inline-start" />
+        Dodaj konto do puli
+      </Button>
+      <p className="mt-2 text-xs text-muted-foreground">
+        Na razie wszystkie konta wychodzą z tego samego IP — to zmniejsza liczbę akcji na konto, ale IG może je kojarzyć po IP.
+        Pełne rozdzielenie (proxy na konto) dodamy później.
+      </p>
+    </Panel>
+  )
+}
+
 /* --------------------------------- Widok ---------------------------------- */
 
 export function SessionView() {
@@ -291,6 +384,7 @@ export function SessionView() {
   return (
     <PageBody>
       <ConnectionCard />
+      <AccountPool />
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
         <div className="flex min-w-0 flex-col gap-4">
           <Panel
@@ -356,7 +450,7 @@ export function SessionView() {
               <span>
                 Pobieraj listy obserwujących i obserwowanych automatycznie przy każdej analizie.
                 <span className="block text-xs text-muted-foreground">
-                  Każda strona listy (50 kont) to osobne zapytanie z pauzą 0,7 s.
+                  Każda strona listy (50 kont) to osobne zapytanie z losową pauzą 3–7 s (anti-ban).
                 </span>
               </span>
             </Label>
