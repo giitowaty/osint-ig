@@ -48,25 +48,54 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * kolejnych 429 (60 s → 2 min → 5 min → 10 min) i resetuje się po sukcesie.
  * ------------------------------------------------------------------------- */
 const BACKOFF_MS = [60_000, 120_000, 300_000, 600_000];
-const guard = { until: 0, strikes: 0, last: null };
+// Cooldown PER KONTO (klucz = userId sesji, albo "anon" bez sesji): limit 429 na
+// jednym koncie nie zamraża pozostałych — pula kont może dalej pracować.
+const guards = new Map(); // key -> { until, strikes, last }
 
-function cooldownState() {
-  const left = guard.until - Date.now();
-  return { active: left > 0, remainingMs: Math.max(0, left), strikes: guard.strikes, lastAt: guard.last };
+function guardFor(key) {
+  let g = guards.get(key);
+  if (!g) { g = { until: 0, strikes: 0, last: null }; guards.set(key, g); }
+  return g;
 }
 
-function tripCooldown(retryAfterHeader) {
+/**
+ * Stan cooldownu. Z kluczem: dla jednego konta. Bez klucza: agregat po wszystkich
+ * kontach (active = którekolwiek aktywne), z rozbiciem per konto w `accounts`.
+ */
+function cooldownState(key) {
+  if (key != null) {
+    const g = guards.get(key);
+    if (!g) return { active: false, remainingMs: 0, strikes: 0, lastAt: null };
+    const left = g.until - Date.now();
+    return { active: left > 0, remainingMs: Math.max(0, left), strikes: g.strikes, lastAt: g.last };
+  }
+  let active = false, remainingMs = 0, strikes = 0, lastAt = null;
+  const accounts = {};
+  for (const [k, g] of guards) {
+    const left = Math.max(0, g.until - Date.now());
+    accounts[k] = { active: left > 0, remainingMs: left, strikes: g.strikes, lastAt: g.last };
+    if (left > 0) active = true;
+    remainingMs = Math.max(remainingMs, left);
+    strikes = Math.max(strikes, g.strikes);
+    if (g.last && (!lastAt || g.last > lastAt)) lastAt = g.last;
+  }
+  return { active, remainingMs, strikes, lastAt, accounts };
+}
+
+function tripCooldown(key, retryAfterHeader) {
+  const g = guardFor(key);
   const fromHeader = Number(retryAfterHeader) > 0 ? Number(retryAfterHeader) * 1000 : 0;
-  const ms = fromHeader || BACKOFF_MS[Math.min(guard.strikes, BACKOFF_MS.length - 1)];
-  guard.strikes++;
-  guard.until = Date.now() + ms;
-  guard.last = new Date().toISOString();
+  const ms = fromHeader || BACKOFF_MS[Math.min(g.strikes, BACKOFF_MS.length - 1)];
+  g.strikes++;
+  g.until = Date.now() + ms;
+  g.last = new Date().toISOString();
   return ms;
 }
 
-function resetCooldown() {
-  guard.until = 0;
-  guard.strikes = 0;
+/** Reset cooldownu: z kluczem jednego konta, bez klucza — wszystkich. */
+function resetCooldown(key) {
+  if (key != null) guards.delete(key);
+  else guards.clear();
 }
 
 function pickHeaders(res) {
@@ -99,7 +128,8 @@ function igMessage(json, text) {
  */
 async function igGet(trace, o) {
   return trace.step(o.stage, o.label, async (step) => {
-    const cd = cooldownState();
+    const acctKey = (o.session && o.session.userId) || "anon"; // klucz cooldownu per konto
+    const cd = cooldownState(acctKey);
     if (cd.active && !o.ignoreCooldown) {
       throw new ApiError("IG_RATE_LIMITED", {
         stage: o.stage,
@@ -164,8 +194,8 @@ async function igGet(trace, o) {
 
     if (/accounts\/login/.test(res.url)) throw fail(o.session ? "IG_SESSION_INVALID" : "IG_LOGIN_REQUIRED");
     if (res.status === 429 || /wait a few minutes|rate limit|spam/i.test(msg)) {
-      const ms = tripCooldown(res.headers.get("retry-after"));
-      trace.log("warn", `Limit IG: wstrzymuję zapytania na ${Math.round(ms / 1000)} s.`);
+      const ms = tripCooldown(acctKey, res.headers.get("retry-after"));
+      trace.log("warn", `Limit IG na koncie [${acctKey}]: wstrzymuję jego zapytania na ${Math.round(ms / 1000)} s (pozostałe konta pracują dalej).`);
       throw fail("IG_RATE_LIMITED", { retryAfterMs: ms });
     }
     if (/checkpoint_required|challenge_required/.test(msg)) throw fail("IG_CHECKPOINT");
@@ -190,7 +220,7 @@ async function igGet(trace, o) {
       });
       throw fail("IG_BAD_RESPONSE", { message: "Odpowiedź Instagrama nie jest poprawnym JSON-em." });
     }
-    resetCooldown();
+    resetCooldown(acctKey);
     step.detail(`HTTP ${res.status} · ${(text.length / 1024).toFixed(1)} kB · ${ms} ms`);
     return { json, text, upstream };
   });
