@@ -20,7 +20,19 @@ const UA =
   "(KHTML, like Gecko) Chrome/128.0 Safari/537.36";
 const TIMEOUT_MS = Number(process.env.OSINT_IG_TIMEOUT_MS) || 15000;
 const LIST_PAGE = 50;
-const LIST_DELAY_MS = 700;
+// Pauza między stronami list znajomych. Zamiast stałych 700 ms — losowy jitter
+// z wolniejszego zakresu: mniej regularny rytm (trudniej wykryć automat) i wolniej,
+// żeby nie zarobić bana. Można nadpisać zmiennymi środowiskowymi.
+const LIST_DELAY_MIN_MS = Number(process.env.OSINT_IG_LIST_DELAY_MIN_MS) || 3000;
+const LIST_DELAY_MAX_MS = Number(process.env.OSINT_IG_LIST_DELAY_MAX_MS) || 7000;
+// Losowa liczba całkowita z zakresu [min, max].
+const randInt = (min, max) => min + Math.floor(Math.random() * (max - min + 1));
+// Bezpieczny, losowy czas pauzy między stronami (ms); odporny na złą konfigurację.
+function listDelay() {
+  let lo = Math.max(500, LIST_DELAY_MIN_MS);
+  let hi = Math.max(lo, LIST_DELAY_MAX_MS);
+  return randInt(lo, hi);
+}
 
 const DIAG_HEADERS = [
   "content-type", "content-length", "retry-after", "location", "x-ig-origin-region",
@@ -340,8 +352,9 @@ async function fetchFriendList(trace, username, type, session, limit) {
     if (!json.next_max_id) break;
     maxId = json.next_max_id;
     if (out.length < cap) {
-      trace.log("info", `Pauza ${LIST_DELAY_MS} ms przed kolejną stroną (ochrona przed limitem).`);
-      await sleep(LIST_DELAY_MS);
+      const wait = listDelay();
+      trace.log("info", `Pauza ${(wait / 1000).toFixed(1)} s przed kolejną stroną (losowe tempo ${LIST_DELAY_MIN_MS / 1000}–${LIST_DELAY_MAX_MS / 1000} s, ochrona przed limitem).`);
+      await sleep(wait);
     }
   }
   if (out.length >= cap) stopReason = `osiągnięto limit ${cap}`;
