@@ -20,18 +20,32 @@ const UA =
   "(KHTML, like Gecko) Chrome/128.0 Safari/537.36";
 const TIMEOUT_MS = Number(process.env.OSINT_IG_TIMEOUT_MS) || 15000;
 const LIST_PAGE = 50;
-// Pauza między stronami list znajomych. Zamiast stałych 700 ms — losowy jitter
-// z wolniejszego zakresu: mniej regularny rytm (trudniej wykryć automat) i wolniej,
-// żeby nie zarobić bana. Można nadpisać zmiennymi środowiskowymi.
-const LIST_DELAY_MIN_MS = Number(process.env.OSINT_IG_LIST_DELAY_MIN_MS) || 3000;
-const LIST_DELAY_MAX_MS = Number(process.env.OSINT_IG_LIST_DELAY_MAX_MS) || 7000;
+// Pauza między stronami list znajomych. Celowo MOCNO nieregularna, żeby nie było
+// widać stałego wzorca: zakres 0,5–5 s, a wartość losowana w jednym z trzech pasm
+// (krótkie / średnie / długie) — z zakazem powtórzenia tego samego pasma pod rząd.
+// Dzięki temu sekwencja skacze (np. 1 s → 3 s → 2 s → 0,5 s). Nadpisywalne env-ami.
+const LIST_DELAY_MIN_MS = Number(process.env.OSINT_IG_LIST_DELAY_MIN_MS) || 500;
+const LIST_DELAY_MAX_MS = Number(process.env.OSINT_IG_LIST_DELAY_MAX_MS) || 5000;
 // Losowa liczba całkowita z zakresu [min, max].
 const randInt = (min, max) => min + Math.floor(Math.random() * (max - min + 1));
-// Bezpieczny, losowy czas pauzy między stronami (ms); odporny na złą konfigurację.
+
+let lastBand = -1; // ostatnio użyte pasmo — nie powtarzamy go pod rząd
+// Bezpieczny, silnie zmienny czas pauzy między stronami (ms); odporny na złą konfigurację.
 function listDelay() {
-  let lo = Math.max(500, LIST_DELAY_MIN_MS);
-  let hi = Math.max(lo, LIST_DELAY_MAX_MS);
-  return randInt(lo, hi);
+  const lo = Math.max(300, LIST_DELAY_MIN_MS);
+  const hi = Math.max(lo + 100, LIST_DELAY_MAX_MS);
+  const span = hi - lo;
+  // Trzy pasma w obrębie [lo, hi]: krótkie, średnie, długie.
+  const bands = [
+    [lo, lo + span * 0.30],
+    [lo + span * 0.30, lo + span * 0.65],
+    [lo + span * 0.65, hi],
+  ];
+  let b = Math.floor(Math.random() * 3);
+  if (b === lastBand) b = (b + 1 + Math.floor(Math.random() * 2)) % 3; // zmień pasmo
+  lastBand = b;
+  const [a, z] = bands[b];
+  return randInt(Math.round(a), Math.round(z));
 }
 
 const DIAG_HEADERS = [
