@@ -229,8 +229,11 @@ async function igGet(trace, o) {
       throw fail("IG_BAD_RESPONSE", { message: "Instagram odrzucił zapytanie GraphQL.", detail: "Brak poprawnych danych zapytania." });
     }
     if (!json) {
-      if (/text\/html/i.test(contentType)) throw fail("IG_LOGIN_REQUIRED", {
-        message: "Instagram zwrócił stronę HTML zamiast danych (ściana logowania).",
+      // Przy wysłanej sesji ściana HTML znaczy „cookie odrzucone", nie „anonimowy limit IP".
+      if (/text\/html/i.test(contentType)) throw fail(o.session ? "IG_SESSION_INVALID" : "IG_LOGIN_REQUIRED", {
+        message: o.session
+          ? "Instagram odesłał stronę HTML zamiast danych mimo sesji (cookie nieakceptowane)."
+          : "Instagram zwrócił stronę HTML zamiast danych (ściana logowania).",
       });
       throw fail("IG_BAD_RESPONSE", { message: "Odpowiedź Instagrama nie jest poprawnym JSON-em." });
     }
@@ -270,6 +273,10 @@ async function fetchWebProfile(trace, username, session, knownId) {
   // Extract only request tokens; never retain or log the authenticated HTML.
   const dtsg = text.match(/"DTSGInitialData"\s*,\s*\[\s*\]\s*,\s*\{\s*"token"\s*:\s*"([^"]+)"/)?.[1];
   const lsd = text.match(/"LSD"\s*,\s*\[\s*\]\s*,\s*\{\s*"token"\s*:\s*"([^"]+)"/)?.[1];
+  // Diagnostyka bez wartości tokenów: brak fb_dtsg/lsd zwykle oznacza, że strona
+  // nie była zalogowana, a wtedy GraphQL odsyła na stronę główną.
+  trace.log(dtsg && lsd ? "info" : "warn",
+    `Tokeny strony: fb_dtsg ${dtsg ? "jest" : "BRAK"}, lsd ${lsd ? "jest" : "BRAK"}.`);
   const query = async (name, docId, variables) => {
     const body = new URLSearchParams({ doc_id: docId, variables: JSON.stringify(variables),
       fb_api_req_friendly_name: name, fb_api_caller_class: "RelayModern", __a: "1", __user: "0",
