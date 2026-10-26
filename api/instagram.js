@@ -243,9 +243,12 @@ async function igGet(trace, o) {
   });
 }
 
-/** Pobiera surowy obiekt użytkownika z web_profile_info. */
-async function fetchProfileUser(trace, username, session, knownId) {
-  if (session) return fetchWebProfile(trace, username, session, knownId);
+// Z sesją, gdy IG odrzuci web_profile_info, próbujemy GraphQL. Limit (429), checkpoint
+// i konto prywatne NIE — drugie zapytanie tylko nakręciłoby blokadę.
+const FALLBACK_FROM_INFO = new Set(["IG_SESSION_INVALID", "IG_LOGIN_REQUIRED", "IG_BAD_RESPONSE", "IG_NOT_FOUND", "IG_HTTP_ERROR"]);
+
+/** Pobiera surowy obiekt użytkownika z web_profile_info (z sesją albo bez). */
+async function fetchWebInfoProfile(trace, username, session) {
   const url = "https://www.instagram.com/api/v1/users/web_profile_info/?username=" + encodeURIComponent(username);
   const { json, upstream } = await igGet(trace, {
     stage: "fetch",
@@ -264,6 +267,24 @@ async function fetchProfileUser(trace, username, session, knownId) {
     });
   }
   return user;
+}
+
+/**
+ * Pobiera surowy obiekt użytkownika. Bez sesji — web_profile_info.
+ * Z sesją — najpierw web_profile_info, a przy odrzuceniu przez IG (np. zmieniony
+ * identyfikator zapytania GraphQL, ściana logowania) — fallback na GraphQL.
+ */
+async function fetchProfileUser(trace, username, session, knownId) {
+  if (!session) return fetchWebInfoProfile(trace, username, null);
+  // Znany identyfikator konta: zostaje ścieżka GraphQL po ID (mniej zapytań).
+  if (knownId) return fetchWebProfile(trace, username, session, knownId);
+  try {
+    return await fetchWebInfoProfile(trace, username, session);
+  } catch (e) {
+    if (!FALLBACK_FROM_INFO.has(e.code)) throw e;
+    trace.log("warn", `web_profile_info z sesją odrzucony (${e.code}) — próbuję GraphQL.`);
+  }
+  return fetchWebProfile(trace, username, session, knownId);
 }
 
 async function fetchWebProfile(trace, username, session, knownId) {

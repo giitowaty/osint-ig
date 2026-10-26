@@ -4,11 +4,15 @@ const { fetchProfileUser, resetCooldown, cooldownState } = require("./instagram"
 const { buildPayload } = require("./normalize");
 const { Trace } = require("./trace");
 
-test("authenticated profile analysis uses current GraphQL and preserves media/statistics without viewer data", async () => {
+const INFO = "/api/v1/users/web_profile_info/";
+const html = '<script type="application/json">["DTSGInitialData",[],{"token":"synthetic-token"}],["LSD",[],{"token":"synthetic-lsd"}]</script>';
+const session = { cookie: "sessionid=123%3Asynthetic", csrf: "synthetic", userId: "123", names: ["sessionid"] };
+const trace = () => new Trace("profile-test");
+const html200 = () => new Response(html, { headers: { "content-type": "text/html" } });
+const json200 = (payload) => new Response(JSON.stringify(payload), { headers: { "content-type": "application/json" } });
+
+test("authenticated profile analysis falls back to GraphQL when web_profile_info is rejected and keeps media/statistics without viewer data", async () => {
   const previousFetch = global.fetch;
-  const session = { cookie: "sessionid=123%3Asynthetic", csrf: "synthetic", userId: "123", names: ["sessionid"] };
-  const trace = () => new Trace("profile-test");
-  const html = '<script type="application/json">["DTSGInitialData",[],{"token":"synthetic-token"}],["LSD",[],{"token":"synthetic-lsd"}]</script>';
   const media = [1, 2, 8].map((type, i) => ({ node: {
     code: `post${i}`, media_type: type, user: { username: "test_account", pk: "456" },
     taken_at: 1700000000, like_count: i, comment_count: i + 1, view_count: type === 2 ? 77 : null,
@@ -21,23 +25,24 @@ test("authenticated profile analysis uses current GraphQL and preserves media/st
   const details = { data: { user: { pk: "456", username: "test_account", full_name: "Test Account", biography: "Technology",
     follower_count: 100, following_count: 7, media_count: 30, category: "Technology", is_verified: true },
     viewer: { user: { username: "private_viewer" } } } };
-  const response = (payload) => new Response(JSON.stringify(payload), { headers: { "content-type": "application/json" } });
   let requests = [];
   try {
     global.fetch = async (url, options) => {
       requests.push(url);
       assert.equal(options.headers.Cookie, session.cookie);
-      if (url.endsWith("/test_account/")) return new Response(html, { headers: { "content-type": "text/html" } });
+      if (url.endsWith("/test_account/")) return html200();
+      if (url.includes(INFO)) return html200(); // IG odsyła ścianę mimo sesji → fallback
       assert.equal(url, "https://www.instagram.com/graphql/query");
       assert.equal(options.method, "POST");
       assert.equal(options.headers["X-CSRFToken"], session.csrf);
       assert.equal(options.body.get("fb_dtsg"), "synthetic-token");
       const name = options.body.get("fb_api_req_friendly_name");
-      return response(name === "PolarisProfilePostsQuery" ? posts : details);
+      return json200(name === "PolarisProfilePostsQuery" ? posts : details);
     };
     const user = await fetchProfileUser(trace(), "test_account", session);
     const payload = buildPayload(user, "test_account");
-    assert.equal(requests.length, 3);
+    assert.ok(requests[0].includes(INFO), "najpierw web_profile_info");
+    assert.equal(requests.filter((u) => u.endsWith("/graphql/query")).length, 2);
     assert.equal(payload.profile.followers, 100);
     assert.equal(payload.profile.following, 7);
     assert.equal(payload.profile.posts, 30);
@@ -52,27 +57,49 @@ test("authenticated profile analysis uses current GraphQL and preserves media/st
     assert.ok(!JSON.stringify(user).includes("discard-me"));
     assert.ok(!JSON.stringify(user).includes("private_viewer"));
 
-    global.fetch = async (url, options) => url.endsWith("/test_account/")
-      ? new Response(html, { headers: { "content-type": "text/html" } })
-      : response(options.body.get("fb_api_req_friendly_name") === "PolarisProfilePostsQuery" ? posts
+    global.fetch = async (url, options) => {
+      if (url.endsWith("/test_account/") || url.includes(INFO)) return html200();
+      return json200(options.body.get("fb_api_req_friendly_name") === "PolarisProfilePostsQuery" ? posts
         : { data: { user: { ...details.data.user, username: "different_account" } } });
+    };
     await assert.rejects(fetchProfileUser(trace(), "test_account", session), (e) => e.code === "IG_BAD_RESPONSE");
 
-    global.fetch = async (url) => url.endsWith("/test_account/")
-      ? new Response(html, { headers: { "content-type": "text/html" } })
-      : new Response('for (;;);{"error":1357054,"secret":"synthetic-token"}', { headers: { "content-type": "application/x-javascript" } });
+    global.fetch = async (url, options) => {
+      if (url.endsWith("/test_account/") || url.includes(INFO)) return html200();
+      return new Response('for (;;);{"error":1357054,"secret":"synthetic-token"}', { headers: { "content-type": "application/x-javascript" } });
+    };
     await assert.rejects(fetchProfileUser(trace(), "test_account", session), (e) => e.code === "IG_BAD_RESPONSE" && !e.upstream.body && e.upstream.method === "POST");
+  } finally { global.fetch = previousFetch; resetCooldown(); }
+});
 
-    requests = [];
+test("authenticated web_profile_info success returns the user without any GraphQL request", async () => {
+  const previousFetch = global.fetch;
+  let requests = [];
+  try {
     global.fetch = async (url) => {
       requests.push(url);
-      return url.endsWith("/test_account/") ? new Response(html, { headers: { "content-type": "text/html" } })
-        : new Response("", { status: 429, headers: { "retry-after": "60" } });
+      return json200({ data: { user: { id: "456", pk: "456", username: "test_account", full_name: "Test Account", biography: "x",
+        edge_followed_by: { count: 100 }, edge_follow: { count: 7 }, edge_owner_to_timeline_media: { count: 30 }, is_verified: false } } });
+    };
+    const user = await fetchProfileUser(trace(), "test_account", session);
+    assert.equal(user.username, "test_account");
+    assert.equal(requests.length, 1);
+    assert.ok(requests[0].includes(INFO));
+  } finally { global.fetch = previousFetch; resetCooldown(); }
+});
+
+test("rate limit on authenticated web_profile_info does not trigger GraphQL fallback and respects cooldown", async () => {
+  const previousFetch = global.fetch;
+  let requests = [];
+  try {
+    global.fetch = async (url) => {
+      requests.push(url);
+      return new Response("", { status: 429, headers: { "retry-after": "60" } });
     };
     await assert.rejects(fetchProfileUser(trace(), "test_account", session), (e) => e.code === "IG_RATE_LIMITED");
-    assert.equal(requests.length, 2);
-    assert.equal(cooldownState().active, true);
+    assert.equal(requests.length, 1);
+    assert.equal(cooldownState("123").active, true);
     await assert.rejects(fetchProfileUser(trace(), "test_account", session), (e) => e.code === "IG_RATE_LIMITED");
-    assert.equal(requests.length, 2);
+    assert.equal(requests.length, 1);
   } finally { global.fetch = previousFetch; resetCooldown(); }
 });
