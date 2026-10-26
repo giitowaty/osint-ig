@@ -147,6 +147,22 @@ export interface Whoami {
   cookies?: string[]
 }
 
+/** Jedno znalezione konto IG w lokalnym Firefoksie. */
+export interface FirefoxCandidate {
+  profile: string
+  userId: string | null
+  names: string[]
+  /** Gotowy nagłówek Cookie (sessionid=…; …) do przekazania jak przy „Wklej”. */
+  cookie: string
+  lastAccessed: number
+}
+
+export interface FirefoxImport {
+  ok: boolean
+  candidates: FirefoxCandidate[]
+  error?: string
+}
+
 export interface Health {
   ok: true
   version: string

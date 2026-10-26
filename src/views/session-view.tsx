@@ -25,8 +25,9 @@ import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { addAccount, clearSession, connectCookies, connectCookiesTo, removeAccount, verifySession, verifySessionEntry } from "@/lib/actions"
+import { addAccount, clearSession, connectCookies, connectCookiesTo, importFromFirefox, removeAccount, useFirefoxCandidate, verifySession, verifySessionEntry } from "@/lib/actions"
 import { CookieParseError, FORMAT_LABEL, mask, parseCookieInput, type CookieBundle } from "@/lib/cookies"
+import type { FirefoxCandidate } from "@/lib/types"
 import { isTauri } from "@/lib/runtime"
 import { setAutoLists, useStore } from "@/lib/store"
 import { cn } from "@/lib/utils"
@@ -290,6 +291,25 @@ function AccountPool() {
   useNow(false) // odświeżanie licznika cooldownu
   const cdAccounts = health.info?.cooldown?.accounts
   const [drafts, setDrafts] = React.useState<Record<string, string>>({})
+  const [ffBusy, setFfBusy] = React.useState(false)
+  const [ffChoices, setFfChoices] = React.useState<FirefoxCandidate[] | null>(null)
+
+  const importFirefox = async () => {
+    setFfBusy(true)
+    setFfChoices(null)
+    try {
+      const r = await importFromFirefox()
+      if (r.error) toast.error(r.error)
+      else if (r.needChoice) {
+        setFfChoices(r.needChoice)
+        toast.info("Znaleziono kilka zalogowanych kont — wybierz, które podłączyć.")
+      } else if (r.added) toast.success("Podłączono konto z Firefoksa — weryfikuję…")
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Nie udało się odczytać Firefoksa.")
+    } finally {
+      setFfBusy(false)
+    }
+  }
 
   const connect = async (id: string) => {
     const text = (drafts[id] || "").trim()
@@ -363,10 +383,40 @@ function AccountPool() {
           )
         })}
       </div>
-      <Button size="xs" variant="outline" className="mt-3 w-fit" onClick={() => addAccount()}>
-        <PlugZapIcon data-icon="inline-start" />
-        Dodaj konto do puli
-      </Button>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Button size="xs" onClick={() => void importFirefox()} disabled={ffBusy}>
+          {ffBusy ? <Spinner className="size-3.5" data-icon="inline-start" /> : <CookieIcon data-icon="inline-start" />}
+          Wczytaj sesję z Firefoksa
+        </Button>
+        <Button size="xs" variant="outline" onClick={() => addAccount()}>
+          <PlugZapIcon data-icon="inline-start" />
+          Dodaj konto ręcznie
+        </Button>
+      </div>
+      {ffChoices && ffChoices.length > 0 && (
+        <div className="mt-2 flex flex-col gap-1.5 border p-2">
+          <p className="text-xs text-muted-foreground">Firefox ma kilka zalogowanych kont — wybierz:</p>
+          {ffChoices.map((c) => (
+            <Button
+              key={c.profile + (c.userId ?? "")}
+              size="xs"
+              variant="ghost"
+              className="justify-start"
+              onClick={() => {
+                setFfChoices(null)
+                void useFirefoxCandidate(c)
+              }}
+            >
+              profil {c.profile}
+              {c.userId ? ` · id ${c.userId}` : ""}
+            </Button>
+          ))}
+        </div>
+      )}
+      <p className="mt-2 text-xs text-muted-foreground">
+        „Wczytaj z Firefoksa" bierze zalogowaną sesję IG wprost z przeglądarki (jeśli jesteś zalogowany na instagram.com).
+        Działa tylko lokalnie, dla Firefoksa; dla innych przeglądarek użyj „Dodaj konto ręcznie".
+      </p>
       <p className="mt-2 text-xs text-muted-foreground">
         Na razie wszystkie konta wychodzą z tego samego IP — to zmniejsza liczbę akcji na konto, ale IG może je kojarzyć po IP.
         Pełne rozdzielenie (proxy na konto) dodamy później.

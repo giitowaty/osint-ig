@@ -1,6 +1,6 @@
 /* Akcje aplikacji: łączą klienta API z magazynem stanu i logiem aktywności. */
 
-import { AppError, getHealth, streamJob } from "./api"
+import { AppError, getHealth, importFirefoxSessions, streamJob } from "./api"
 import {
   finishJob,
   getState,
@@ -23,7 +23,7 @@ import {
 } from "./store"
 import { parseCookieInput, toHeader, type CookieBundle } from "./cookies"
 import { apiBase } from "./runtime"
-import type { ApiErrorBody, FollowersPage, FriendList, ProfilePayload, Whoami } from "./types"
+import type { ApiErrorBody, FirefoxCandidate, FollowersPage, FriendList, ProfilePayload, Whoami } from "./types"
 import { flushSaved } from "./persist"
 
 export function normalizeUsername(raw: string): string {
@@ -504,6 +504,36 @@ export async function connectCookiesTo(id: string, input: string | CookieBundle)
   })
   log("info", "app", `Zapisano ${Object.keys(b.cookies).length} ciasteczek IG (${b.format}). Sprawdzam konto…`)
   await verifySessionEntry(id)
+}
+
+/**
+ * „Jedno kliknięcie": odczytuje sesję IG z lokalnego Firefoksa i podłącza ją.
+ * - 1 konto → podłącza od razu (zwraca je w `added`),
+ * - kilka kont → zwraca listę w `needChoice` (UI pyta, które),
+ * - nic/błąd → `error`.
+ */
+export async function importFromFirefox(): Promise<{ added?: FirefoxCandidate; needChoice?: FirefoxCandidate[]; error?: string }> {
+  let res
+  try {
+    res = await importFirefoxSessions()
+  } catch (e) {
+    return { error: asBody(e).message }
+  }
+  if (!res.ok) return { error: res.error || "W Firefoksie nie znaleziono zalogowanej sesji Instagrama." }
+  if (res.candidates.length === 1) {
+    await useFirefoxCandidate(res.candidates[0])
+    return { added: res.candidates[0] }
+  }
+  return { needChoice: res.candidates }
+}
+
+/** Podłącza wskazane konto z Firefoksa do puli (odświeża istniejące zamiast dublować). */
+export async function useFirefoxCandidate(c: FirefoxCandidate) {
+  const existing = c.userId
+    ? getState().sessions.find((e) => e.id === c.userId || e.meta?.userId === c.userId)
+    : undefined
+  const id = existing ? existing.id : addSessionSlot()
+  await connectCookiesTo(id, c.cookie)
 }
 
 /** Weryfikuje jedno konto puli (whoami) i aktualizuje jego dane/status. */

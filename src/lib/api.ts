@@ -4,7 +4,7 @@
  * -------------------------------------------------------------------------- */
 
 import { apiBase, isTauri } from "./runtime"
-import type { ApiErrorBody, Health, TraceEvent } from "./types"
+import type { ApiErrorBody, FirefoxImport, Health, TraceEvent } from "./types"
 
 export class AppError extends Error {
   body: ApiErrorBody
@@ -178,6 +178,24 @@ export async function getHealth(signal?: AbortSignal): Promise<Health> {
     throw unreachable("/api/health", e)
   }
   if (!res.ok) throw await readJsonError(res, "/api/health")
+  return res.json()
+}
+
+/** Odczytuje zalogowane sesje IG z lokalnego Firefoksa (backend czyta cookies.sqlite). */
+export async function importFirefoxSessions(signal?: AbortSignal): Promise<FirefoxImport> {
+  let base: string
+  try {
+    base = await apiBase()
+  } catch (e) {
+    throw unreachable("/api/import/firefox", e)
+  }
+  let res: Response
+  try {
+    res = await fetch(`${base}/api/import/firefox`, { signal })
+  } catch (e) {
+    throw unreachable("/api/import/firefox", e)
+  }
+  if (!res.ok) throw await readJsonError(res, "/api/import/firefox")
   return res.json()
 }
 

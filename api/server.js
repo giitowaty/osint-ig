@@ -309,6 +309,23 @@ const server = http.createServer(async (req, res) => {
       case "/api/errors":
         return sendJson(req, res, 200, { ok: true, codes: CODES });
 
+      case "/api/import/firefox": {
+        // Czyta ciasteczka IG z lokalnego Firefoksa (serwer działa na tym samym PC).
+        // Zwraca front gotowe nagłówki sesji; wartości sessionid nie trafiają do logów.
+        let result;
+        try {
+          const { readInstagramSessions } = require("./firefox-cookies");
+          result = readInstagramSessions();
+        } catch (e) {
+          return sendJson(req, res, 200, { ok: false, candidates: [], error: `Odczyt z Firefoksa nie powiódł się: ${e.message}` });
+        }
+        if (result.ok) {
+          const who = result.candidates.map((c) => `profil ${c.profile}${c.userId ? ` · id ${c.userId}` : ""}`).join(", ");
+          log(`Firefox: znaleziono ${result.candidates.length} zalogowaną sesję IG (${who}).`);
+        }
+        return sendJson(req, res, 200, result);
+      }
+
       case "/api/profile": {
         const username = parseUsername(u.searchParams.get("username"));
         const knownId = parseUserId(u.searchParams.get("userId"));
