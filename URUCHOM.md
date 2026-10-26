@@ -14,7 +14,13 @@ Serwer sam wystartuje, a przeglądarka otworzy się automatycznie.
 → otworzy się **http://localhost:8000**
 
 Potrzebujesz zainstalowanego **Node.js** (jednorazowo): https://nodejs.org
-(wersja **LTS**). Jeśli go brak, launcher powie o tym i da link.
+(wersja **LTS**, czyli 20.19+ albo 22.12+). Jeśli go brak lub jest za stary,
+launcher powie o tym i da link.
+
+Launcher jest „inteligentny": przy pierwszym razie instaluje zależności i buduje
+interfejs, a **po każdej aktualizacji kodu** (np. `git pull`) sam wykrywa zmianę
+i przebudowuje — nigdy nie pokaże starej wersji. Jeśli port 8000 jest zajęty,
+sam wybierze kolejny wolny i wypisze adres.
 
 Aby **zatrzymać** program — zamknij okno/terminal serwera, które się pojawiło.
 
@@ -40,8 +46,9 @@ biblioteki (chwilę to potrwa), kolejne razy startuje od razu.
 - **Linux**: jeśli dwuklik nie działa, kliknij plik prawym → *Właściwości* →
   *Uprawnienia* → zaznacz „Pozwól na wykonywanie", albo uruchom z menu
   „Uruchom w terminalu".
-- **Port zajęty / strona się nie otwiera** — odczekaj 2–3 sekundy i odśwież
-  przeglądarkę; serwer potrzebuje chwili na start.
+- **Strona się nie otwiera** — odczekaj 2–3 sekundy i odśwież; serwer potrzebuje
+  chwili na start. Jeśli przeglądarka nie wyskoczy sama, wejdź ręcznie na adres,
+  który launcher wypisał w oknie (domyślnie http://localhost:8000).
 - Obie części można odpalić naraz (główna apka na porcie 8000, dashboard na 8100).
 
 ## Wersja 0.4: web + desktop (Tauri)

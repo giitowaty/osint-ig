@@ -1,25 +1,23 @@
 #!/bin/bash
-# OSINT-IG — podwójne kliknięcie uruchamia serwer i otwiera przeglądarkę (macOS).
+# OSINT-IG — uruchamia aplikację i otwiera przeglądarkę (macOS).
+# Całą pracę (wersja Node, instalacja, przebudowa po aktualizacji, port) robi
+# scripts/launch.mjs — wspólny dla Windows/macOS/Linux.
 cd "$(dirname "$0")" || exit 1
 
 if ! command -v node >/dev/null 2>&1; then
   echo ""
   echo "  [!] Nie znaleziono Node.js."
-  echo "      Zainstaluj z https://nodejs.org i uruchom plik ponownie."
+  echo "      Zainstaluj wersję LTS (20.19+ albo 22.12+), z https://nodejs.org,"
+  echo "      i uruchom plik ponownie."
   echo ""
   read -n 1 -s -r -p "Naciśnij dowolny klawisz, aby zamknąć..."
   exit 1
 fi
 
-if [ ! -f dist/index.html ]; then
-  echo "  Pierwsze uruchomienie: instaluję zależności i buduję interfejs (1-2 min)..."
-  if [ ! -d node_modules ]; then npm install --ignore-scripts --no-audit --no-fund || exit 1; fi
-  npm run build || exit 1
+node scripts/launch.mjs
+code=$?
+if [ $code -ne 0 ]; then
+  echo ""
+  read -n 1 -s -r -p "Coś poszło nie tak (szczegóły wyżej). Naciśnij dowolny klawisz, aby zamknąć..."
 fi
-
-echo ""
-echo "  Uruchamiam OSINT-IG na http://localhost:8000 ..."
-echo "  (zamknij to okno, aby zatrzymać program)"
-echo ""
-( sleep 2; open "http://localhost:8000" ) &
-exec node api/server.js
+exit $code
