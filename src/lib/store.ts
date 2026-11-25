@@ -77,7 +77,7 @@ export interface JobStep {
 
 export interface Job {
   id: string
-  kind: "profile" | "list" | "whoami"
+  kind: "profile" | "list" | "whoami" | "selftest"
   label: string
   target?: string
   status: "running" | "ok" | "error" | "cancelled"

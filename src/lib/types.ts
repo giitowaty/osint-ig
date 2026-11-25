@@ -147,6 +147,27 @@ export interface Whoami {
   cookies?: string[]
 }
 
+/** Wynik autotestu połączenia z Instagramem (/api/selftest). */
+export interface SelftestCheck {
+  id: string
+  label: string
+  status: "ok" | "fail" | "skipped"
+  message: string
+  code?: string
+  hint?: string | null
+  /** Klucz pliku ig-queries.json odpowiedzialny za to zapytanie. */
+  configKey: string | null
+  configLabel: string | null
+}
+
+export interface SelftestReport {
+  ok: boolean
+  username: string
+  authenticated: boolean
+  checks: SelftestCheck[]
+  config: { source: "default" | "file"; path: string; overrides: string[]; errors: string[]; values: Record<string, string> }
+}
+
 /** Jedno znalezione konto IG w lokalnym Firefoksie. */
 export interface FirefoxCandidate {
   profile: string

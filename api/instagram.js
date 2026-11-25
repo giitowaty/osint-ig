@@ -11,10 +11,13 @@
 
 const { ApiError, toApiError } = require("./errors");
 const { profileFromWebGraphql } = require("./web-profile");
+const { query: igQuery, loadQueries } = require("./ig-queries");
 
-const IG_APP_ID = "936619743392459";
-// Authenticated viewer query used by the web client (not a public profile lookup).
-const VIEWER_URL = "https://www.instagram.com/graphql/query/?query_hash=d6f4427fbe92d846298cf93df0b937d3&variables=%7B%7D";
+// Identyfikatory zapytań (app id, query_hash, doc_id) są w ig-queries.js i można
+// je nadpisać plikiem bez przebudowy programu, gdy Instagram je zmieni.
+// Zapytanie o konto zalogowanej sesji używane przez web klienta (nie profil publiczny).
+const viewerUrl = () =>
+  `https://www.instagram.com/graphql/query/?query_hash=${igQuery("viewerQueryHash")}&variables=%7B%7D`;
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
   "(KHTML, like Gecko) Chrome/128.0 Safari/537.36";
@@ -156,7 +159,7 @@ async function igGet(trace, o) {
     const t0 = Date.now();
     const headers = {
       "User-Agent": UA,
-      "x-ig-app-id": IG_APP_ID,
+      "x-ig-app-id": igQuery("appId"),
       "X-Requested-With": "XMLHttpRequest",
       Accept: "*/*",
       "Accept-Language": "pl-PL,pl;q=0.9,en-US;q=0.8,en;q=0.7",
@@ -287,69 +290,89 @@ async function fetchProfileUser(trace, username, session, knownId) {
   return fetchWebProfile(trace, username, session, knownId);
 }
 
-async function fetchWebProfile(trace, username, session, knownId) {
+/** Pobiera stronę profilu z sesją i wyłuskuje tokeny żądań (fb_dtsg, lsd). Nie zachowuje HTML-a. */
+async function pageTokens(trace, username, session) {
   const referer = `https://www.instagram.com/${encodeURIComponent(username)}/`;
   const { text } = await igGet(trace, { stage: "bootstrap", label: `Inicjalizacja strony @${username}`,
     url: referer, session, responseType: "html" });
   // Extract only request tokens; never retain or log the authenticated HTML.
   const dtsg = text.match(/"DTSGInitialData"\s*,\s*\[\s*\]\s*,\s*\{\s*"token"\s*:\s*"([^"]+)"/)?.[1];
   const lsd = text.match(/"LSD"\s*,\s*\[\s*\]\s*,\s*\{\s*"token"\s*:\s*"([^"]+)"/)?.[1];
+  const profileId = text.match(/"profile_id"\s*:\s*"(\d+)"/)?.[1];
   // Diagnostyka bez wartości tokenów: brak fb_dtsg/lsd zwykle oznacza, że strona
   // nie była zalogowana, a wtedy GraphQL odsyła na stronę główną.
   trace.log(dtsg && lsd ? "info" : "warn",
     `Tokeny strony: fb_dtsg ${dtsg ? "jest" : "BRAK"}, lsd ${lsd ? "jest" : "BRAK"}.`);
-  const query = async (name, docId, variables) => {
-    const body = new URLSearchParams({ doc_id: docId, variables: JSON.stringify(variables),
-      fb_api_req_friendly_name: name, fb_api_caller_class: "RelayModern", __a: "1", __user: "0",
-      __d: "www", av: session.userId || "0", __comet_req: "7", server_timestamps: "true" });
-    if (dtsg) {
-      body.set("fb_dtsg", dtsg);
-      body.set("jazoest", "2" + [...dtsg].reduce((sum, c) => sum + c.charCodeAt(0), 0));
-    }
-    if (lsd) body.set("lsd", lsd);
-    const result = await igGet(trace, { stage: "fetch", label: `${name} @${username}`,
-      url: "https://www.instagram.com/graphql/query", method: "POST", body,
-      headers: { "Content-Type": "application/x-www-form-urlencoded", Origin: "https://www.instagram.com",
-        ...(lsd ? { "X-FB-LSD": lsd } : {}) }, referer, session });
-    return result.json;
-  };
-  const readDetails = async (id) => {
-    const details = await query("PolarisProfilePageContentQuery", "28036671149327607", {
+  return { dtsg, lsd, profileId, referer };
+}
+
+/** Jedno zapytanie web GraphQL (POST /graphql/query) z tokenami strony. Zwraca JSON. */
+async function graphqlQuery(trace, { username, session, tokens, name, docId, variables }) {
+  const { dtsg, lsd, referer } = tokens;
+  const body = new URLSearchParams({ doc_id: docId, variables: JSON.stringify(variables),
+    fb_api_req_friendly_name: name, fb_api_caller_class: "RelayModern", __a: "1", __user: "0",
+    __d: "www", av: session.userId || "0", __comet_req: "7", server_timestamps: "true" });
+  if (dtsg) {
+    body.set("fb_dtsg", dtsg);
+    body.set("jazoest", "2" + [...dtsg].reduce((sum, c) => sum + c.charCodeAt(0), 0));
+  }
+  if (lsd) body.set("lsd", lsd);
+  const result = await igGet(trace, { stage: "fetch", label: `${name} @${username}`,
+    url: "https://www.instagram.com/graphql/query", method: "POST", body,
+    headers: { "Content-Type": "application/x-www-form-urlencoded", Origin: "https://www.instagram.com",
+      ...(lsd ? { "X-FB-LSD": lsd } : {}) }, referer, session });
+  return result.json;
+}
+
+/** Dane profilu po ID (PolarisProfilePageContentQuery). */
+async function readProfileDetails(trace, username, session, tokens, id) {
+  const details = await graphqlQuery(trace, { username, session, tokens,
+    name: "PolarisProfilePageContentQuery", docId: igQuery("profilePageContent"), variables: {
       enable_integrity_filters: true, id: String(id),
       __relay_internal__pv__PolarisCannesGuardianExperienceEnabledrelayprovider: true,
       __relay_internal__pv__PolarisCASB976ProfileEnabledrelayprovider: false,
       __relay_internal__pv__PolarisWebSchoolsEnabledrelayprovider: false,
       __relay_internal__pv__PolarisRepostsConsumptionEnabledrelayprovider: false,
       __relay_internal__pv__PolarisShortDramaEnabledrelayprovider: true,
-    });
-    const profile = details.data?.user;
-    if (!profile || profile.username?.toLowerCase() !== username.toLowerCase()) {
-      throw new ApiError("IG_BAD_RESPONSE", { stage: "fetch", message: "Dane Instagrama nie pasują do żądanego profilu." });
-    }
-    return profile;
-  };
-  const knownProfile = knownId ? await readDetails(knownId) : null;
+    } });
+  const profile = details.data?.user;
+  if (!profile || profile.username?.toLowerCase() !== username.toLowerCase()) {
+    throw new ApiError("IG_BAD_RESPONSE", { stage: "fetch", message: "Dane Instagrama nie pasują do żądanego profilu." });
+  }
+  return profile;
+}
+
+/** Ostatnie posty profilu (PolarisProfilePostsQuery). Zwraca krawędzie osi czasu. */
+async function readProfilePosts(trace, username, session, tokens) {
+  const posts = await graphqlQuery(trace, { username, session, tokens,
+    name: "PolarisProfilePostsQuery", docId: igQuery("profilePosts"), variables: {
+      data: { count: 12, include_reel_media_seen_timestamp: true, include_relationship_info: true,
+        latest_besties_reel_media: true, latest_reel_media: true }, username,
+      __relay_internal__pv__PolarisMultiCaptionCarouselEnabledrelayprovider: true,
+      __relay_internal__pv__PolarisShortDramaEnabledrelayprovider: true,
+      __relay_internal__pv__PolarisReelsRecoDebugOverlayEnabledrelayprovider: false,
+    } });
+  const feed = posts.data?.xdt_api__v1__feed__user_timeline_graphql_connection;
+  if (!feed || !Array.isArray(feed.edges)) throw new ApiError("IG_BAD_RESPONSE", {
+    stage: "fetch", message: "Instagram nie zwrócił listy postów profilu." });
+  return feed.edges;
+}
+
+async function fetchWebProfile(trace, username, session, knownId) {
+  const tokens = await pageTokens(trace, username, session);
+  const knownProfile = knownId ? await readProfileDetails(trace, username, session, tokens, knownId) : null;
   if (knownProfile && (knownProfile.media_count === 0 || (knownProfile.is_private && !knownProfile.friendship_status?.following))) {
     trace.log("info", "Dane profilu dostępne; brak widocznych postów dla połączonego konta.");
     return profileFromWebGraphql(knownProfile, []);
   }
-  const posts = await query("PolarisProfilePostsQuery", "28542612348729311", {
-    data: { count: 12, include_reel_media_seen_timestamp: true, include_relationship_info: true,
-      latest_besties_reel_media: true, latest_reel_media: true }, username,
-    __relay_internal__pv__PolarisMultiCaptionCarouselEnabledrelayprovider: true,
-    __relay_internal__pv__PolarisShortDramaEnabledrelayprovider: true,
-    __relay_internal__pv__PolarisReelsRecoDebugOverlayEnabledrelayprovider: false,
-  });
-  const feed = posts.data?.xdt_api__v1__feed__user_timeline_graphql_connection;
-  if (!feed || !Array.isArray(feed.edges)) throw new ApiError("IG_BAD_RESPONSE", {
-    stage: "fetch", message: "Instagram nie zwrócił listy postów profilu." });
-  const owner = feed.edges.map((e) => e.node?.user).find((u) => u?.username?.toLowerCase() === username.toLowerCase());
-  const id = knownId || owner?.pk || owner?.id || text.match(/"profile_id"\s*:\s*"(\d+)"/)?.[1];
+  const edges = await readProfilePosts(trace, username, session, tokens);
+  const owner = edges.map((e) => e.node?.user).find((u) => u?.username?.toLowerCase() === username.toLowerCase());
+  const id = knownId || owner?.pk || owner?.id || tokens.profileId;
   if (!id) throw new ApiError("IG_BAD_RESPONSE", { stage: "fetch",
     message: "Nie udało się ustalić ID profilu bez widocznych postów.",
     hint: "Profil może być pusty lub prywatny. Sprawdź, czy jego posty są widoczne dla połączonego konta." });
-  const profile = knownProfile || await readDetails(id);
-  return profileFromWebGraphql(profile, feed.edges);
+  const profile = knownProfile || await readProfileDetails(trace, username, session, tokens, id);
+  return profileFromWebGraphql(profile, edges);
 }
 
 /** One bounded page, so the client can checkpoint a long followers run. */
@@ -448,7 +471,7 @@ async function fetchWhoami(trace, session) {
   const { json, upstream } = await igGet(trace, {
     stage: "session",
     label: "GET web viewer (konto zalogowanej sesji)",
-    url: VIEWER_URL,
+    url: viewerUrl(),
     session,
   });
   const u = json && json.data && json.data.user;
@@ -468,4 +491,8 @@ async function fetchWhoami(trace, session) {
   };
 }
 
-module.exports = { cooldownState, resetCooldown, igGet, fetchProfileUser, fetchFriendList, fetchFollowersPage, fetchWhoami, usersFromResponse, UA };
+module.exports = {
+  cooldownState, resetCooldown, igGet, fetchProfileUser, fetchFriendList, fetchFollowersPage, fetchWhoami, usersFromResponse, UA,
+  // dla autotestu (api/selftest.js): pojedyncze zapytania do sprawdzenia z osobna
+  fetchWebInfoProfile, pageTokens, readProfilePosts, readProfileDetails, loadQueries,
+};

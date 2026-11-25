@@ -131,6 +131,22 @@ DNS rebinding. Odrzuca też zapytania z obcych stron (nagłówek `Origin` spoza
 komputera. Jeśli świadomie udostępniasz serwer w sieci lokalnej (`HOST=0.0.0.0`),
 dopisz adres do `OSINT_ALLOWED_HOSTS`, np. `OSINT_ALLOWED_HOSTS=192.168.1.10:8000`.
 
+### Gdy Instagram zmieni zapytania (autotest)
+
+Program korzysta z nieoficjalnych zapytań Instagrama, których identyfikatory
+(`doc_id`, `query_hash`) Instagram co jakiś czas zmienia. **Narzędzia → Autotest
+połączenia z Instagramem** sprawdza każde zapytanie z osobna na znanym profilu i
+mówi, które przestało działać oraz który klucz poprawić. Nowe wartości wpisujesz
+w pliku JSON — bez przebudowy i bez restartu programu:
+
+- `~/.osint-ig/ig-queries.json` (Windows: `C:\Users\<nazwa>\.osint-ig\ig-queries.json`)
+  albo ścieżka z `OSINT_IG_QUERIES`;
+- tylko zmienione klucze, np. `{ "profilePosts": "1234567890123456" }`;
+- klucze: `appId`, `viewerQueryHash`, `profilePageContent`, `profilePosts`.
+
+Nowy `doc_id` znajdziesz w przeglądarce: zalogowany instagram.com → DevTools →
+Sieć → filtr „graphql” → otwórz profil → zapytanie o nazwie z autotestu → pole `doc_id`.
+
 ### Endpointy API
 
 Analiza z połączoną sesją najpierw pyta `web_profile_info`, a gdy Instagram je odrzuci
@@ -144,6 +160,7 @@ zawiera odpowiednią próbkę; aplikacja nie tworzy ich z brakujących danych.
 | `GET /api/profile?username=[&fresh=1][&stream=1]` | analiza profilu; `stream=1` → SSE z krokami na żywo |
 | `GET /api/list?username=&type=followers\|following` | lista przez sesję IG (nagłówek `x-ig-session`) |
 | `GET /api/whoami` | weryfikacja cookie sesji |
+| `GET /api/selftest[?username=instagram]` | autotest zapytań do IG (sesja opcjonalna) |
 | `GET /api/followers/page?username=&userId=[&cursor=]` | jedna strona obserwujących (do automatycznej analizy z punktami kontrolnymi) |
 | `GET /api/import/firefox` | odczyt zalogowanej sesji IG z lokalnego Firefoksa (tylko z tego komputera) |
 | `GET /api/img?url=` | proxy miniatur (tylko CDN IG) |

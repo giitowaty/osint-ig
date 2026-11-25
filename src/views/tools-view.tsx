@@ -3,6 +3,7 @@ import { BookmarkIcon, DownloadIcon, PuzzleIcon, Trash2Icon, UploadIcon } from "
 import { toast } from "sonner"
 
 import { PageBody, Panel } from "@/components/profile-parts"
+import { SelftestPanel } from "@/components/selftest-panel"
 import { Button } from "@/components/ui/button"
 import { Kbd, KbdGroup } from "@/components/ui/kbd"
 import { downloadJson } from "@/lib/analysis"
@@ -56,6 +57,7 @@ export function ToolsView() {
   return (
     <PageBody>
       <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
+        <SelftestPanel />
         <Panel title="Zbieracz list (bookmarklet)" description="Działa w Twojej przeglądarce, na Twojej sesji IG. Nic nie trafia na serwer.">
           <div className="flex flex-col gap-3 text-sm">
             <Bookmarklet />

@@ -27,6 +27,8 @@ const { ApiError, CODES, toApiError } = require("./errors");
 const { Trace } = require("./trace");
 const { sessionFromHeaders } = require("./cookies");
 const { createExtensionBridge } = require("./extension-bridge");
+const { runSelftest } = require("./selftest");
+const { loadQueries } = require("./ig-queries");
 const {
   fetchProfileUser, fetchFriendList, fetchFollowersPage, fetchWhoami, usersFromResponse, cooldownState, resetCooldown, UA,
 } = require("./instagram");
@@ -336,6 +338,7 @@ const server = http.createServer(async (req, res) => {
           sea: (() => { try { return require("node:sea").isSea(); } catch { return false; } })(),
           cooldown: cooldownState(),
           cache: { entries: profileCache.size, ttlMs: CACHE_TTL_MS },
+          igQueries: (() => { const q = loadQueries(); return { source: q.source, path: q.path, overrides: q.overrides, errors: q.errors } })(),
         });
 
       case "/api/cooldown/reset":
@@ -394,6 +397,13 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
+      case "/api/selftest": {
+        // Autotest połączenia z IG: każde zapytanie z osobna + który klucz ig-queries.json poprawić.
+        const username = parseUsername(u.searchParams.get("username") || "instagram");
+        const session = readSession(req, false);
+        return runJob(req, res, u, `autotest @${username}`, (trace) => runSelftest(trace, username, session || null));
+      }
+
       case "/api/whoami": {
         const session = readSession(req, true);
         return runJob(req, res, u, "whoami", (trace) => fetchWhoami(trace, session));
@@ -427,7 +437,7 @@ const server = http.createServer(async (req, res) => {
         if (u.pathname.startsWith("/api/")) {
           return sendJson(req, res, 404, {
             ok: false,
-            error: { code: "NOT_FOUND", message: `Nieznany endpoint ${u.pathname}.`, hint: "Dostępne: /api/health, /api/profile, /api/list, /api/whoami, /api/img." },
+            error: { code: "NOT_FOUND", message: `Nieznany endpoint ${u.pathname}.`, hint: "Dostępne: /api/health, /api/profile, /api/list, /api/whoami, /api/selftest, /api/img." },
           });
         }
         return serveStatic(req, res, u.pathname);

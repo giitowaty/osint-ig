@@ -10,7 +10,7 @@
     "build": "tsc -b && vite build",
     "start": "node api/server.js",
     "serve": "npm run build && npm start",
-    "test": "node api/test.js && node --test api/extension-bridge.check.cjs api/session.check.cjs api/profile.check.cjs api/followers.check.cjs api/server-security.check.cjs && vitest run",
+    "test": "node api/test.js && node --test api/extension-bridge.check.cjs api/session.check.cjs api/profile.check.cjs api/followers.check.cjs api/server-security.check.cjs api/selftest.check.cjs && vitest run",
     "typecheck": "tsc -b",
     "lint": "eslint .",
     "format": "prettier --write \"src/**/*.{ts,tsx}\"",
