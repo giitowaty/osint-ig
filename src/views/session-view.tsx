@@ -25,11 +25,11 @@ import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { addAccount, clearSession, connectCookies, connectCookiesTo, importFromFirefox, removeAccount, useFirefoxCandidate, verifySession, verifySessionEntry } from "@/lib/actions"
+import { addAccount, clearSession, connectCookies, connectCookiesTo, importFromFirefox, removeAccount, connectFirefoxCandidate, verifySession, verifySessionEntry } from "@/lib/actions"
 import { CookieParseError, FORMAT_LABEL, mask, parseCookieInput, type CookieBundle } from "@/lib/cookies"
 import type { FirefoxCandidate } from "@/lib/types"
 import { isTauri } from "@/lib/runtime"
-import { setAutoLists, useStore } from "@/lib/store"
+import { hasAnySession, setAutoLists, useStore } from "@/lib/store"
 import { cn } from "@/lib/utils"
 
 /* --------------------------- Stan połączenia ------------------------------ */
@@ -404,7 +404,7 @@ function AccountPool() {
               className="justify-start"
               onClick={() => {
                 setFfChoices(null)
-                void useFirefoxCandidate(c)
+                void connectFirefoxCandidate(c)
               }}
             >
               profil {c.profile}
@@ -430,6 +430,7 @@ function AccountPool() {
 export function SessionView() {
   const session = useStore((s) => s.session)
   const autoLists = useStore((s) => s.autoLists)
+  const anySession = useStore(hasAnySession)
 
   return (
     <PageBody>
@@ -496,7 +497,7 @@ export function SessionView() {
           </Panel>
           <Panel title="Automatyzacja">
             <Label className="flex items-start gap-3 text-sm font-normal">
-              <Switch checked={autoLists} onCheckedChange={setAutoLists} disabled={!session.cookie} className="mt-0.5" />
+              <Switch checked={autoLists} onCheckedChange={setAutoLists} disabled={!anySession} className="mt-0.5" />
               <span>
                 Pobieraj listy obserwujących i obserwowanych automatycznie przy każdej analizie.
                 <span className="block text-xs text-muted-foreground">

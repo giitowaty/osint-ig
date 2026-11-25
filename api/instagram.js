@@ -174,7 +174,7 @@ async function igGet(trace, o) {
         redirect: "follow", signal: AbortSignal.timeout(TIMEOUT_MS) });
     } catch (e) {
       const err = toApiError(e, o.stage);
-      err.upstream = { method: "GET", url: o.url, ms: Date.now() - t0, timeoutMs: TIMEOUT_MS };
+      err.upstream = { method: o.method || "GET", url: o.url, ms: Date.now() - t0, timeoutMs: TIMEOUT_MS };
       throw err;
     }
     const text = await res.text().catch(() => "");
@@ -422,7 +422,8 @@ async function fetchFriendList(trace, username, type, session, limit) {
     trace.emit({ type: "progress", stage: "list", current: out.length, total: cap, label: `${out.length} kont` });
     if (!names.length) { stopReason = "pusta strona"; break; }
     if (!json.next_max_id) break;
-    maxId = json.next_max_id;
+    if (String(json.next_max_id) === maxId) { stopReason = "IG powtórzył tę samą stronę"; break; }
+    maxId = String(json.next_max_id);
     if (out.length < cap) {
       const wait = listDelay();
       trace.log("info", `Pauza ${(wait / 1000).toFixed(1)} s przed kolejną stroną (losowe tempo ${LIST_DELAY_MIN_MS / 1000}–${LIST_DELAY_MAX_MS / 1000} s, ochrona przed limitem).`);

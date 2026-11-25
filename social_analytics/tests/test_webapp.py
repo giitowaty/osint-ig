@@ -18,6 +18,12 @@ try:
 except ModuleNotFoundError:  # pragma: no cover
     HAS_WEB = False
 
+try:
+    import networkx  # noqa: F401
+    HAS_NX = True
+except ModuleNotFoundError:  # pragma: no cover
+    HAS_NX = False
+
 
 SAMPLE = {
     "profile": {"username": "alice", "followers": 1000, "full_name": "Alice A.", "category": "Travel"},
@@ -36,9 +42,12 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(res["primary"]["profile"]["username"], "alice")
         self.assertAlmostEqual(res["primary"]["metrics"]["engagement_rate_pct"], 16.5, places=3)
         self.assertTrue(res["primary"]["topics"])  # Travel/Food wykryte
-        self.assertTrue(res["graph_available"])
-        self.assertIn("nodes", res["graph"])
-        self.assertTrue(res["influence"])
+        # Graf i ranking wpływu wymagają networkx; bez niego potok ma działać
+        # dalej i uczciwie zgłaszać brak grafu zamiast się wywracać.
+        self.assertEqual(res["graph_available"], HAS_NX)
+        if HAS_NX:
+            self.assertIn("nodes", res["graph"])
+            self.assertTrue(res["influence"])
 
     def test_analyze_invalid_input(self) -> None:
         with self.assertRaises(TypeError):
@@ -65,7 +74,7 @@ class WebAppTest(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         body = r.json()
         self.assertEqual(body["primary"]["profile"]["username"], "alice")
-        self.assertTrue(body["graph_available"])
+        self.assertEqual(body["graph_available"], HAS_NX)
 
     def test_analyze_wrapped_in_data(self) -> None:
         r = self.client.post("/api/analyze", json={"data": SAMPLE})

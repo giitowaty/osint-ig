@@ -122,13 +122,21 @@ Launchery `start-windows.bat` / `start-macos.command` / `start-linux.sh` przy pi
 uruchomieniu same instalują zależności (bez skryptów instalacyjnych) i budują front.
 
 Serwer słucha tylko na `127.0.0.1` (zmienne: `PORT`, `HOST`, `OSINT_CACHE_TTL_MS`,
-`OSINT_IG_TIMEOUT_MS`, `OSINT_ALLOWED_ORIGINS`).
+`OSINT_IG_TIMEOUT_MS`, `OSINT_ALLOWED_ORIGINS`, `OSINT_ALLOWED_HOSTS`).
+
+**Bezpieczeństwo serwera.** Serwer przyjmuje tylko nagłówek `Host` wskazujący na ten
+komputer (`127.0.0.1`, `localhost`, `[::1]`), więc obca strona nie odczyta API przez
+DNS rebinding. Odrzuca też zapytania z obcych stron (nagłówek `Origin` spoza
+`OSINT_ALLOWED_ORIGINS`). Import sesji z Firefoksa działa wyłącznie z tego samego
+komputera. Jeśli świadomie udostępniasz serwer w sieci lokalnej (`HOST=0.0.0.0`),
+dopisz adres do `OSINT_ALLOWED_HOSTS`, np. `OSINT_ALLOWED_HOSTS=192.168.1.10:8000`.
 
 ### Endpointy API
 
-Analiza z połączoną sesją pobiera profil i 12 postów aktualnymi zapytaniami web GraphQL.
-Nie używa blokowanego `web_profile_info` dla zalogowanych kont. Rzeczywiste limity 429
-nadal zatrzymują zapytania. Komentarze i demografia są dostępne wyłącznie, gdy odpowiedź
+Analiza z połączoną sesją najpierw pyta `web_profile_info`, a gdy Instagram je odrzuci
+(ściana logowania, zmieniony format), pobiera profil i 12 postów zapytaniami web GraphQL.
+Limit 429, checkpoint i konto prywatne nie uruchamiają drugiego zapytania, żeby nie
+przedłużać blokady. Komentarze i demografia są dostępne wyłącznie, gdy odpowiedź
 zawiera odpowiednią próbkę; aplikacja nie tworzy ich z brakujących danych.
 
 | Endpoint | Rola |
@@ -136,6 +144,8 @@ zawiera odpowiednią próbkę; aplikacja nie tworzy ich z brakujących danych.
 | `GET /api/profile?username=[&fresh=1][&stream=1]` | analiza profilu; `stream=1` → SSE z krokami na żywo |
 | `GET /api/list?username=&type=followers\|following` | lista przez sesję IG (nagłówek `x-ig-session`) |
 | `GET /api/whoami` | weryfikacja cookie sesji |
+| `GET /api/followers/page?username=&userId=[&cursor=]` | jedna strona obserwujących (do automatycznej analizy z punktami kontrolnymi) |
+| `GET /api/import/firefox` | odczyt zalogowanej sesji IG z lokalnego Firefoksa (tylko z tego komputera) |
 | `GET /api/img?url=` | proxy miniatur (tylko CDN IG) |
 | `GET /api/health` | stan silnika, blokada IG, pamięć podręczna |
 | `GET /api/cooldown/reset`, `GET /api/cache/clear` | ręczne zdjęcie blokady / wyczyszczenie pamięci |

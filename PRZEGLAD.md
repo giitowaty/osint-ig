@@ -7,49 +7,56 @@ Dokument-ściąga opisujący cały stan narzędzia. Szczegóły funkcji są w `R
 ## 1. Co to jest i jak odpalić
 
 Narzędzie do **analizy profilu Instagram i mapowania powiązań między kontami**.
-Front to czysty HTML/CSS/JS, dane dostarcza lekki **backend-proxy w Node** (bez
-zależności w runtime).
+Front to **React + TypeScript + Vite** (shadcn/ui), ten sam w przeglądarce i w
+aplikacji desktopowej **Tauri**. Dane dostarcza lekki **backend-proxy w Node**
+(bez zależności w runtime), w Tauri uruchamiany jako sidecar.
 
 ```bash
-npm start        # = node api/server.js  → http://localhost:8000
-npm test         # 54 testy (bez sieci)
-npm run build:names   # regeneracja słownika imion (wymaga devDependencies)
+npm install          # jednorazowo
+npm run dev          # API :8000 + Vite :5173 (HMR) → http://127.0.0.1:5173
+npm run serve        # build + serwer → http://localhost:8000
+npm test             # backend (bez sieci) + bezpieczeństwo serwera + vitest
+npm run desktop:dev  # aplikacja desktopowa (wymaga Rusta)
 ```
 
-Wymagania: **Node ≥ 18** (wbudowany `fetch`). Zwykłe użycie nie wymaga
-`npm install` — runtime nie ma zależności.
+Wymagania: **Node ≥ 20**. Moduł Pythona `social_analytics` (osobny dashboard
+FastAPI) wymaga `pip install -r social_analytics/requirements.txt`.
 
 ---
 
 ## 2. Architektura
 
 ```
-index.html        – struktura + ładowanie skryptów
-styles.css        – wygląd (ciemny motyw)
-app.js            – front: analiza profilu, zakładki, render, eksport, historia
-network.js        – zakładka „Sieć”: graf + bąbelki + panel sterowania
-collector.js      – bookmarklet zbierający listę kont w przeglądarce
-session.js        – opcjonalna sesja IG (cookie) do auto-pobierania
-api/server.js     – backend: proxy do IG + serwowanie frontu + API
-api/content.js    – kategorie treści, wydźwięk, zainteresowania, klasyfikacja
-api/names.js      – heurystyka imię→płeć (ładuje słownik)
-api/names-data.json   – wygenerowany słownik imion (runtime)
-api/build-names.mjs   – generator słownika z otwartych zbiorów
-api/data/pesel/       – źródłowe CSV z rejestru PESEL (build-time)
-api/test.js       – testy (bez sieci)
-extension/        – rozszerzenie Chrome/Edge (MV3) działające w sesji IG
+src/               – front React: widoki (src/views), komponenty, logika (src/lib)
+  lib/actions.ts   – analiza, kolejka kont, pula sesji, import z Firefoksa
+  lib/store.ts     – stan aplikacji + pula kont (routing: jedno konto na profil)
+  lib/graph.ts     – graf powiązań, centralności, społeczności
+  lib/persist.ts   – zapis sesji badawczej i checkpointów kolejki (IndexedDB)
+api/server.js      – backend: proxy do IG, SSE z krokami, serwowanie dist/
+api/instagram.js   – zapytania do IG, cooldown per konto, losowe tempo list
+api/normalize.js   – normalizacja profilu/postów, powiązania, szacunek płci
+api/content.js     – kategorie treści, wydźwięk, zainteresowania
+api/firefox-cookies.js – odczyt sesji IG z lokalnego profilu Firefoksa
+api/extension-bridge.js – lokalny most z rozszerzeniem przeglądarki
+extension/         – rozszerzenie Chrome/Edge (MV3)
+src-tauri/         – powłoka desktopowa (Rust)
+social_analytics/  – moduł Pythona: graf, NLP, metryki, eksport Neo4j, dashboard
 ```
 
-**Zasada:** backend serwuje i front, i API z jednego procesu/portu. Runtime
-ładuje tylko gotowe pliki — paczki npm są wyłącznie devDependencies do budowy
-słownika imion.
+**Zasada:** backend serwuje i front, i API z jednego procesu/portu. Przyjmuje
+tylko nagłówek `Host` wskazujący na ten komputer i odrzuca zapytania z obcych
+stron (ochrona przed DNS rebinding i CSRF).
 
 ### Endpointy API
 | Endpoint | Rola |
 |----------|------|
-| `GET /api/profile?username=` | pobiera i normalizuje profil + posty + powiązania + analizę treści |
-| `GET /api/whoami` (nagłówek `x-ig-session`) | weryfikuje cookie sesji, zwraca zalogowane konto |
-| `GET /api/list?username=&type=followers\|following` (nagłówek `x-ig-session`) | pobiera listę obserwujących/obserwowanych przez sesję IG (paginacja, opóźnienia) |
+| `GET /api/profile?username=` | profil + posty + powiązania + analiza treści (SSE z `stream=1`) |
+| `GET /api/whoami` (nagłówek `x-ig-session`/`x-ig-cookies`) | weryfikuje sesję, zwraca zalogowane konto |
+| `GET /api/list?username=&type=followers\|following` | lista przez sesję IG (paginacja, losowe pauzy) |
+| `GET /api/followers/page?username=&userId=` | jedna strona obserwujących (kolejka z checkpointami) |
+| `GET /api/import/firefox` | sesja IG z lokalnego Firefoksa (tylko z tego komputera) |
+| `GET /api/img?url=` | proxy miniatur z CDN IG |
+| `GET /api/health`, `/api/cooldown/reset`, `/api/cache/clear` | stan silnika, blokada, pamięć podręczna |
 
 ---
 
@@ -106,7 +113,7 @@ liczby. Dlatego są trzy drogi zdobycia list, w kolejności od najbezpieczniejsz
 1. **Rozszerzenie przeglądarki** (`extension/`) — działa w Twojej zalogowanej
    sesji, Twoim IP; pobiera listę i kopiuje do schowka, kopiuje też `sessionid`.
    Najbezpieczniejsze dla IP/konta (wygląda jak normalne użycie).
-2. **Bookmarklet** (`collector.js`) — przeciągany przycisk, uruchamiasz na
+2. **Bookmarklet** (`src/lib/collector.ts`) — przeciągany przycisk, uruchamiasz na
    stronie listy obserwujących; przewija i kopiuje nazwy. Też Twoja sesja/IP.
 3. **Backend `/api/list` z cookie sesji** — wklejasz `sessionid`, backend sam
    pobiera listy (także batch dla wszystkich kont). Wygodne, ale zapytania idą
@@ -131,16 +138,13 @@ rozstrzygana głosowaniem źródeł (PESEL najwyższa waga). Runtime ładuje tyl
 
 | Element | Status |
 |---------|--------|
-| Front, zakładki, render, eksport, historia, sieć (graf/bąbelki) | ✅ zweryfikowane (zrzuty + testy) |
-| Logika backendu: parsowanie, słownik, analiza treści, powiązania | ✅ testy (54) |
-| Słownik imion / PESEL | ✅ zweryfikowane |
-| `/api/profile` pobieranie z żywego IG | 🟡 niesprawdzone w sandboxie (IG nieosiągalny) — u Ciebie powinno działać |
-| `/api/list`, `/api/whoami` z żywym IG | 🟡 hydraulika sprawdzona na mockach, realny IG do testu u Ciebie |
-| Rozszerzenie (`extension/`) w prawdziwym Chrome | 🟡 składnia/manifest OK, nie odpalone na żywo |
-| Bookmarklet na żywej stronie IG | 🟡 kod OK, selektory DOM IG bywają zmienne |
-
-🟡 = środowisko dev nie ma dostępu do Instagrama, więc testów end-to-end z żywym
-IG nie dało się wykonać tutaj.
+| Front (wszystkie widoki), kolejka, pula kont, eksport, zapis IndexedDB | ✅ testy vitest (33) + uruchomienie w przeglądarce |
+| Backend: parsowanie, analiza treści, słownik, ciasteczka, fallback GraphQL | ✅ testy (54 + 4 + 6 + 8) na mockach IG |
+| Bezpieczeństwo serwera (Host, Origin, import z Firefoksa) | ✅ testy `api/server-security.check.cjs` |
+| Moduł Pythona `social_analytics` | ✅ 58 testów (z `networkx`); bez niego testy grafu są pomijane |
+| Typecheck (`tsc -b`), lint (`eslint`), build produkcyjny | ✅ czyste |
+| Pobieranie z żywego Instagrama (`/api/profile`, listy, `whoami`) | 🟡 do sprawdzenia u Ciebie — środowisko dev nie ma dostępu do IG |
+| Rozszerzenie w prawdziwym Chrome, import z Firefoksa na Twoim PC | 🟡 kod i testy OK, nie odpalone na żywo |
 
 ---
 
@@ -160,7 +164,12 @@ IG nie dało się wykonać tutaj.
 
 ## 8. Pomysły na dalej (niezrobione)
 
-- Notka opsec i suwak opóźnienia/limitu w panelu sterowania.
+- Test end-to-end z żywym Instagramem na osobnym koncie i aktualizacja
+  identyfikatorów zapytań GraphQL (`doc_id`), gdy IG je zmieni.
+- Podział paczki frontu (ok. 1,2 MB JS w jednym pliku) — leniwe ładowanie widoków
+  grafu, wpływu i porównania przyspieszy start.
+- Suwak opóźnienia/limitu w panelu kolejki i krótka notka opsec przy starcie.
 - Przycisk w rozszerzeniu „wyślij prosto do OSINT-IG” (bez kopiuj-wklej).
-- Eksport grafu/bąbli do PNG.
-- Integracja Graph API dla kont własnych (jedyna „czysta” droga do followersów).
+- Eksport grafu do PNG/SVG.
+- Integracja Graph API dla własnych kont (jedyna „czysta” droga do followersów).
+- Test jednostkowy kolejki (`runQueue`): anulowanie, limit 429, wznowienie.

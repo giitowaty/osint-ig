@@ -41,7 +41,7 @@ import { analyze, applyPastedList, fetchList, fetchListsForAll } from "@/lib/act
 import { fmtCompact } from "@/lib/analysis"
 import { cypher, downloadDataUrl, downloadText, edgesCsv, gexf, nodeLink, nodesCsv } from "@/lib/exporters"
 import { buildGraph, communities, communityCount, graphPreview, rankInfluential, INFLUENCE_LABEL, type GraphModel } from "@/lib/graph"
-import { navigate, setAutoLists, useStore, type ProfileEntry } from "@/lib/store"
+import { hasAnySession, navigate, setAutoLists, useStore, type ProfileEntry } from "@/lib/store"
 import { cn } from "@/lib/utils"
 
 export function useGraphModel(opts: { hashtags: boolean; lists: boolean; minSources: number; focus?: string | null }) {
@@ -150,7 +150,7 @@ function ExportMenu({
 function ListsSheet() {
   const order = useStore((s) => s.order)
   const profiles = useStore((s) => s.profiles)
-  const cookie = useStore((s) => s.session.cookie)
+  const cookie = useStore(hasAnySession)
   const account = useStore((s) => s.session.account)
   const autoLists = useStore((s) => s.autoLists)
   const [acc, setAcc] = React.useState(order[0] ?? "")

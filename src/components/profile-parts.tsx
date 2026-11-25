@@ -28,7 +28,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { analyze, setManual } from "@/lib/actions"
 import { contentSummary, downloadJson, exportText, fmt, fmtCompact, fmtDate, insights, ratio, type Stats } from "@/lib/analysis"
 import { openExternal } from "@/lib/runtime"
-import { useStore, type ProfileEntry } from "@/lib/store"
+import { hasAnySession, useStore, type ProfileEntry } from "@/lib/store"
 import type { ProfilePayload } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { Welcome } from "@/views/welcome"
@@ -149,7 +149,7 @@ export function ProfileHeader({ entry }: { entry: ProfileEntry }) {
   const p = data?.profile
   const username = entry.username
   const loading = entry.status === "loading"
-  const cookie = useStore((s) => s.session.cookie)
+  const cookie = useStore(hasAnySession)
 
   const copy = async () => {
     if (!data) return

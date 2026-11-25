@@ -10,7 +10,13 @@
  *  • serwowanie zbudowanego frontu (dist/) w trybie web.
  *
  * Uruchomienie:  node api/server.js   (domyślnie http://127.0.0.1:8000)
- * Zmienne: PORT, HOST, OSINT_STATIC_DIR, OSINT_ALLOWED_ORIGINS (po przecinku).
+ * Zmienne: PORT, HOST, OSINT_STATIC_DIR, OSINT_ALLOWED_ORIGINS (po przecinku),
+ *          OSINT_ALLOWED_HOSTS (po przecinku, np. "192.168.1.10:8000" — tylko
+ *          gdy świadomie udostępniasz serwer w sieci lokalnej z HOST=0.0.0.0).
+ *
+ * Bezpieczeństwo: serwer przyjmuje wyłącznie nagłówek Host wskazujący na ten
+ * komputer (ochrona przed DNS rebinding) i odrzuca zapytania z obcych stron
+ * (nagłówek Origin spoza listy). Import sesji z Firefoksa działa tylko lokalnie.
  * -------------------------------------------------------------------------- */
 
 const http = require("http");
@@ -42,6 +48,29 @@ const ALLOWED_ORIGINS = new Set([
   "http://127.0.0.1:5173",
   ...String(process.env.OSINT_ALLOWED_ORIGINS || "").split(",").map((s) => s.trim()).filter(Boolean),
 ]);
+
+// Nagłówek Host musi wskazywać na ten komputer — inaczej złośliwa strona mogłaby
+// przez DNS rebinding czytać odpowiedzi API (w tym ciasteczka z Firefoksa).
+const LOOPBACK_HOST = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
+const EXTRA_HOSTS = new Set(
+  String(process.env.OSINT_ALLOWED_HOSTS || "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean),
+);
+
+function hostAllowed(req) {
+  const h = String(req.headers.host || "").toLowerCase();
+  if (LOOPBACK_HOST.test(h)) return true;
+  return EXTRA_HOSTS.has(h) || EXTRA_HOSTS.has(h.replace(/:\d+$/, ""));
+}
+
+/** Zapytanie z obcej strony (CSRF): Origin spoza listy i nie ten sam serwer. */
+function foreignOrigin(req) {
+  const origin = req.headers.origin;
+  if (!origin) return false; // zwykłe zapytanie z tej samej strony / spoza przeglądarki
+  if (ALLOWED_ORIGINS.has(origin)) return false;
+  return origin.toLowerCase() !== `http://${String(req.headers.host || "").toLowerCase()}`;
+}
+
+const isLoopbackAddress = (addr) => /^(127\.|::1$|::ffff:127\.)/.test(String(addr || ""));
 
 // Pamięć podręczna wyników analizy: ponowne otwarcie profilu nie pyta IG.
 const CACHE_TTL_MS = Number(process.env.OSINT_CACHE_TTL_MS) || 15 * 60_000;
@@ -215,7 +244,11 @@ async function proxyImage(req, res, u) {
 
 function serveStatic(req, res, pathname) {
   const root = path.resolve(STATIC_DIR);
-  let rel = decodeURIComponent(pathname).replace(/^\/+/, "");
+  let rel;
+  try { rel = decodeURIComponent(pathname).replace(/^\/+/, ""); } catch {
+    res.writeHead(400, { "Content-Type": "text/plain" });
+    return res.end("400");
+  }
   if (!rel) rel = "index.html";
   let file = path.resolve(root, rel);
   if (!file.startsWith(root + path.sep) && file !== root) {
@@ -269,6 +302,16 @@ const server = http.createServer(async (req, res) => {
   } catch {
     return sendJson(req, res, 400, { ok: false, message: "Błąd połączenia rozszerzenia." });
   }
+  if (!hostAllowed(req)) {
+    res.writeHead(421, { "Content-Type": "text/plain; charset=utf-8" });
+    return res.end("Niedozwolony nagłówek Host. Otwórz aplikację przez http://127.0.0.1 lub ustaw OSINT_ALLOWED_HOSTS.");
+  }
+  if (u.pathname.startsWith("/api/") && foreignOrigin(req)) {
+    return sendJson(req, res, 403, {
+      ok: false,
+      error: { code: "FORBIDDEN_ORIGIN", message: "Zapytanie z obcej strony zostało odrzucone.", hint: "Dodaj źródło do OSINT_ALLOWED_ORIGINS, jeśli to zamierzone." },
+    });
+  }
   if (req.method === "OPTIONS") {
     res.writeHead(204, corsHeaders(req));
     return res.end();
@@ -312,6 +355,10 @@ const server = http.createServer(async (req, res) => {
       case "/api/import/firefox": {
         // Czyta ciasteczka IG z lokalnego Firefoksa (serwer działa na tym samym PC).
         // Zwraca front gotowe nagłówki sesji; wartości sessionid nie trafiają do logów.
+        // Tylko z tego samego komputera — nawet gdy serwer jest udostępniony w LAN.
+        if (!isLoopbackAddress(req.socket.remoteAddress)) {
+          return sendJson(req, res, 403, { ok: false, candidates: [], error: "Import sesji z Firefoksa jest dostępny tylko lokalnie." });
+        }
         let result;
         try {
           const { readInstagramSessions } = require("./firefox-cookies");

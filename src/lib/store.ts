@@ -523,6 +523,13 @@ export function patchSessionEntry(id: string, patch: Partial<SessionEntry>) {
   commitSessions(sessions)
 }
 
+/**
+ * Czy w puli jest jakiekolwiek konto z ciasteczkami. Do bramkowania funkcji
+ * wymagających sesji — `session` to tylko sessions[0], które może być pustym
+ * slotem, gdy działające konto stoi dalej w puli.
+ */
+export const hasAnySession = (s: State): boolean => s.sessions.some((e) => !!e.cookie)
+
 /** Konta puli gotowe do pracy: mają cookie i nie są w cooldownie (wg health). */
 function usableSessions(): SessionEntry[] {
   const { sessions, health } = getState()

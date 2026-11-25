@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { useNow } from "@/hooks/use-now"
 import { analyzeFollowers, clearQueue, enqueue, parseList, pauseQueue, removeFromQueue, resumeQueue, retryFailed } from "@/lib/actions"
-import { patchQueue, useStore } from "@/lib/store"
+import { hasAnySession, patchQueue, useStore } from "@/lib/store"
 import { ListPager } from "@/components/list-pager"
 import { duration, pageSlice } from "@/lib/large-lists"
 import { flushSaved } from "@/lib/persist"
@@ -42,7 +42,7 @@ export function QueueSheet() {
   const [limit, setLimit] = React.useState("1000")
   const q = useStore((s) => s.queue)
   const sourceProfile = useStore((s) => s.profiles[sourceUser]?.data?.profile)
-  const cookie = useStore((s) => s.session.cookie)
+  const cookie = useStore(hasAnySession)
   const source = q.followersSource
   const hasWork = q.running || !!q.items.length || !!(source && !source.complete)
   const canResume = !!q.items.length || !!(source && !source.complete)

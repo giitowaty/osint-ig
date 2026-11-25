@@ -20,6 +20,7 @@ import {
   addSessionSlot,
   removeSession,
   patchSessionEntry,
+  hasAnySession,
 } from "./store"
 import { parseCookieInput, toHeader, type CookieBundle } from "./cookies"
 import { apiBase } from "./runtime"
@@ -89,15 +90,19 @@ export async function analyze(raw: string, opts: { focus?: boolean; fresh?: bool
     if (data.cached) log("info", "app", `@${username}: wynik z pamięci serwera (${Math.round((data.cacheAgeMs ?? 0) / 1000)} s). „Odśwież” pobiera na nowo.`, { jobId: id })
     finishJob(id, "ok")
     pushHistory(canonical)
-    if (!opts.skipAutoLists && getState().autoLists && getState().session.cookie) {
+    if (!opts.skipAutoLists && getState().autoLists && hasAnySession(getState())) {
       void fetchList(username, "followers").then(() => fetchList(username, "following"))
     }
   } catch (e) {
     const body = asBody(e)
     const cancelled = body.code === "CANCELLED"
+    // Anulowanie profilu, który ma już dane, przywraca poprzedni wynik. Bez danych
+    // zostawiamy błąd CANCELLED: widok pokaże „Ponów”, a kolejka się wstrzyma
+    // (zamiast po cichu policzyć konto jako przeanalizowane).
+    const keepPrevious = cancelled && !!existing?.data
     patchProfile(username, {
-      status: cancelled && existing?.data ? "ready" : "error",
-      error: cancelled ? existing?.error : body,
+      status: keepPrevious ? "ready" : "error",
+      error: keepPrevious ? existing?.error : body,
     })
     finishJob(id, cancelled ? "cancelled" : "error", cancelled ? undefined : body)
   }
@@ -130,7 +135,7 @@ export function analyzeFollowers(raw: string, limit?: number) {
   const username = normalizeUsername(raw)
   const s = getState()
   const profile = s.profiles[username]?.data?.profile
-  if (validateUsername(username) || !profile?.id || profile.private || !s.session.cookie) {
+  if (validateUsername(username) || !profile?.id || profile.private || !hasAnySession(s)) {
     log("warn", "app", "Najpierw otwórz publiczny profil i połącz sesję IG.")
     return false
   }
@@ -235,7 +240,7 @@ export async function runQueue() {
     for (;;) {
       const q = getState().queue
       if (q.paused || !q.running || epoch !== queueEpoch) break
-      if (q.followersSource && !getState().session.cookie) {
+      if (q.followersSource && !hasAnySession(getState())) {
         patchQueue({ paused: true, followersSource: { ...q.followersSource, error: {
           code: "SESSION_MISSING", origin: "client", message: "Połącz sesję IG, aby wznowić analizę obserwujących." } } })
         break
@@ -352,7 +357,9 @@ export function setTags(username: string, tags: string[]) {
 async function serverGet(path: string) {
   const base = await apiBase()
   const res = await fetch(`${base}${path}`)
-  return res.json()
+  const body = await res.json().catch(() => null)
+  if (!res.ok || !body?.ok) throw new Error(body?.error?.message || `HTTP ${res.status}`)
+  return body
 }
 
 export async function resetCooldown() {
@@ -521,14 +528,14 @@ export async function importFromFirefox(): Promise<{ added?: FirefoxCandidate; n
   }
   if (!res.ok) return { error: res.error || "W Firefoksie nie znaleziono zalogowanej sesji Instagrama." }
   if (res.candidates.length === 1) {
-    await useFirefoxCandidate(res.candidates[0])
+    await connectFirefoxCandidate(res.candidates[0])
     return { added: res.candidates[0] }
   }
   return { needChoice: res.candidates }
 }
 
 /** Podłącza wskazane konto z Firefoksa do puli (odświeża istniejące zamiast dublować). */
-export async function useFirefoxCandidate(c: FirefoxCandidate) {
+export async function connectFirefoxCandidate(c: FirefoxCandidate) {
   const existing = c.userId
     ? getState().sessions.find((e) => e.id === c.userId || e.meta?.userId === c.userId)
     : undefined
