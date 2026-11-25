@@ -214,7 +214,7 @@ export function degreeCentrality(g: GraphModel): Map<string, number> {
   // Jak networkx (DiGraph): para kierunkowa liczona raz, niezależnie od rodzaju relacji.
   const seen = new Set<string>()
   for (const e of g.edges) {
-    const key = `${e.source} ${e.target}`
+    const key = `${e.source}\u0000${e.target}`
     if (seen.has(key)) continue
     seen.add(key)
     d.set(e.source, d.get(e.source)! + 1)
