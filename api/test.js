@@ -52,6 +52,15 @@ ok("męskie na -a: Kosma", () => assert.strictEqual(guessGender("Kosma", "").gen
 ok("żeńskie nie na -a: Noemi", () => assert.strictEqual(guessGender("Noemi", "").gender, "female"));
 ok("żeńskie nie na -a: Ingrid", () => assert.strictEqual(guessGender("Ingrid", "").gender, "female"));
 // rzadkie imiona obce z rejestru PESEL (osoby żyjące)
+ok("nazwa konta, nie imię: Studio Foto -> unknown", () => assert.strictEqual(guessGender("Studio Foto", "studio_foto").gender, "unknown"));
+ok("nazwa konta, nie imię: kawa i podróże -> unknown", () => assert.strictEqual(guessGender("kawa i podróże ☕", "obserwujacy_0").gender, "unknown"));
+ok("nazwa konta, nie imię: Pizza Hut -> unknown", () => assert.strictEqual(guessGender("Pizza Hut", "pizza").gender, "unknown"));
+ok("imię obok słowa-klucza nadal działa: Kawa z Anną -> female", () => assert.strictEqual(guessGender("Kawa z Anną", "anna.kawa").gender, "female"));
+ok("słaba reguła -a tylko dla 1. słowa: Zuzka -> female (0,4)", () => {
+  const g = guessGender("Zuzka", "zuzka_xx");
+  assert.strictEqual(g.gender, "female");
+});
+ok("słaba reguła -a nie łapie dalszych słów: Studio Mokotowska -> unknown", () => assert.strictEqual(guessGender("Studio Mokotowska", "").gender, "unknown"));
 ok("PESEL obce męskie: Mykola", () => assert.strictEqual(guessGender("Mykola", "").gender, "male"));
 
 // --- content: kategorie ---
