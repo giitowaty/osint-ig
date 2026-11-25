@@ -141,7 +141,7 @@ rozstrzygana głosowaniem źródeł (PESEL najwyższa waga). Runtime ładuje tyl
 
 | Element | Status |
 |---------|--------|
-| Front (wszystkie widoki), kolejka, pula kont, eksport, zapis IndexedDB | ✅ testy vitest (65: kolejka, graf, bąbelki, eksport PNG…) + uruchomienie w przeglądarce |
+| Front (wszystkie widoki), kolejka, pula kont, eksport, zapis IndexedDB | ✅ testy vitest (116: kolejka, limit i tempo, graf, bąbelki, bio, eksport PNG…) + uruchomienie w przeglądarce |
 | Backend: parsowanie, analiza treści, słownik, ciasteczka, fallback GraphQL | ✅ testy (54 + 4 + 6 + 8) na mockach IG |
 | Bezpieczeństwo serwera (Host, Origin, import z Firefoksa) | ✅ testy `api/server-security.check.cjs` |
 | Moduł Pythona `social_analytics` | ✅ 58 testów (z `networkx`); bez niego testy grafu są pomijane |
@@ -169,6 +169,6 @@ rozstrzygana głosowaniem źródeł (PESEL najwyższa waga). Runtime ładuje tyl
 
 - Test end-to-end z żywym Instagramem na osobnym koncie i aktualizacja
   identyfikatorów zapytań GraphQL (`doc_id`), gdy IG je zmieni.
-- Suwak opóźnienia/limitu w panelu kolejki i krótka notka opsec przy starcie.
+- Krótka notka o bezpiecznym użyciu (konto pomocnicze, domowe IP) przy pierwszym uruchomieniu.
 - Przycisk w rozszerzeniu „wyślij prosto do OSINT-IG” (bez kopiuj-wklej).
 - Integracja Graph API dla własnych kont (jedyna „czysta” droga do followersów).

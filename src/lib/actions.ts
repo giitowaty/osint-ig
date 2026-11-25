@@ -16,7 +16,8 @@ import {
   PROFILE_VIEWS,
   patchQueue,
   cancelJob,
-  cookieForProfile,
+  acquireSession,
+  allAtLimit,
   addSessionSlot,
   removeSession,
   patchSessionEntry,
@@ -26,6 +27,7 @@ import { parseCookieInput, toHeader, type CookieBundle } from "./cookies"
 import { apiBase } from "./runtime"
 import type { ApiErrorBody, FirefoxCandidate, FollowerPerson, FollowersPage, FriendList, ProfilePayload, Whoami } from "./types"
 import { flushSaved } from "./persist"
+import { formatWait, jitter, msToMidnight } from "./pace"
 
 export function normalizeUsername(raw: string): string {
   let v = (raw || "").trim()
@@ -52,6 +54,17 @@ const asBody = (e: unknown): ApiErrorBody =>
         detail: e instanceof Error ? e.stack?.split("\n").slice(0, 5).join("\n") : null,
       }
 
+/** Błąd „wszystkie konta wyczerpały dzienny limit operacji” — wspólny dla analizy, list i kolejki. */
+function dailyLimitError(): ApiErrorBody {
+  const limit = getState().dailyLimit
+  return {
+    code: "DAILY_LIMIT",
+    origin: "client",
+    message: `Dzienny limit ${limit} operacji na konto jest wyczerpany na wszystkich kontach z puli.`,
+    hint: `Licznik zeruje się o północy (za ${formatWait(msToMidnight(new Date()))}). Możesz zwiększyć limit w panelu „Analiza wielu kont” albo dodać kolejne konto w widoku Sesja IG.`,
+  }
+}
+
 /** Analizuje profil; wynik trafia do sesji badawczej i (opcjonalnie) do widoku. */
 export async function analyze(raw: string, opts: { focus?: boolean; fresh?: boolean; userId?: string; skipAutoLists?: boolean } = {}) {
   const username = normalizeUsername(raw)
@@ -66,14 +79,22 @@ export async function analyze(raw: string, opts: { focus?: boolean; fresh?: bool
     return
   }
 
+  // Konto z puli (i doliczenie operacji do jego dziennego licznika) wybieramy PRZED startem zadania.
+  const lease = acquireSession(username)
+  if (lease.blocked) {
+    const body = dailyLimitError()
+    log("warn", "app", `@${username}: ${body.message}`)
+    patchProfile(username, { status: "error", error: body })
+    if (opts.focus !== false) navigate(PROFILE_VIEWS.includes(getState().view) ? getState().view : "overview", username)
+    return
+  }
   const { id, signal } = startJob("profile", `Analiza @${username}`, username)
   patchProfile(username, { status: "loading", jobId: id, error: undefined })
   if (opts.focus !== false) {
     const view = getState().view
     navigate(PROFILE_VIEWS.includes(view) ? view : "overview", username)
   }
-  // Pula kont: dla tego profilu wybierz konto (jedno konto na profil).
-  const cookie = cookieForProfile(username)
+  const cookie = lease.cookie
 
   try {
     const data = await streamJob<ProfilePayload>(
@@ -155,12 +176,14 @@ export function analyzeFollowers(raw: string, limit?: number) {
 async function loadFollowersPage(epoch: number) {
   const s = getState()
   const source = s.queue.followersSource!
+  const lease = acquireSession(source.username)
+  if (lease.blocked) throw new AppError(dailyLimitError())
   const { id, signal } = startJob("list", `Obserwujący @${source.username} · strona listy`, source.username)
   queueJob = id
   try {
     const remaining = source.limit ? source.limit - source.discovered : 50
     const path = `/api/followers/page?username=${encodeURIComponent(source.username)}&userId=${source.userId}&count=${Math.min(50, remaining)}${source.cursor ? `&cursor=${encodeURIComponent(source.cursor)}` : ""}`
-    const page = await streamJob<FollowersPage>(path, { signal, session: cookieForProfile(source.username),
+    const page = await streamJob<FollowersPage>(path, { signal, session: lease.cookie,
       onEvent: (ev) => jobEvent(id, ev), onStart: (info) => setJobTrace(id, info.traceId) })
     if (epoch !== queueEpoch || getState().queue.paused || signal.aborted) {
       finishJob(id, "cancelled")
@@ -266,7 +289,7 @@ export async function runQueue() {
           retries.delete("followers-page")
           const next = getState().queue
           if (epoch === queueEpoch && !next.paused && !next.items.length && next.followersSource && !next.followersSource.complete) {
-            await waitWhile(Date.now() + next.delayMs, "pauza między stronami obserwujących")
+            await waitWhile(Date.now() + jitter(next.delayMs), "pauza między stronami obserwujących")
           }
         } catch (e) {
           if (epoch !== queueEpoch || getState().queue.paused) break
@@ -297,7 +320,7 @@ export async function runQueue() {
         await waitWhile(Date.now() + wait, "limit Instagrama")
         continue
       }
-      if (err && ["IG_SESSION_INVALID", "IG_CHECKPOINT", "SESSION_MISSING", "CANCELLED"].includes(err.code)) {
+      if (err && ["IG_SESSION_INVALID", "IG_CHECKPOINT", "SESSION_MISSING", "CANCELLED", "DAILY_LIMIT"].includes(err.code)) {
         patchQueue({ paused: true, ...(q.followersSource ? { followersSource: { ...q.followersSource, error: err } } : {}) })
         break
       }
@@ -315,8 +338,7 @@ export async function runQueue() {
       if (getState().hydrated && !(await flushSaved())) break
       if (getState().queue.items.length || (getState().queue.followersSource && !getState().queue.followersSource!.complete)) {
         // Pauza z rozrzutem ±30%: równe odstępy wyglądają jak bot.
-        const d = getState().queue.delayMs
-        await waitWhile(Date.now() + Math.round(d * (0.7 + Math.random() * 0.6)), "pauza między kontami")
+        await waitWhile(Date.now() + jitter(getState().queue.delayMs), "pauza między kontami")
       }
     }
   } finally {
@@ -398,13 +420,18 @@ export async function clearServerCache() {
 /** Pobiera listę obserwujących/obserwowanych przez sesję IG. */
 export async function fetchList(username: string, type: "followers" | "following", limit = 300) {
   const label = `${type === "followers" ? "Obserwujący" : "Obserwowani"} @${username}`
+  const lease = acquireSession(username)
+  if (lease.blocked) {
+    log("warn", "app", `${label}: ${dailyLimitError().message}`)
+    return null
+  }
   const { id, signal } = startJob("list", label, username)
   try {
     const data = await streamJob<FriendList>(
       `/api/list?username=${encodeURIComponent(username)}&type=${type}&limit=${limit}`,
       {
         signal,
-        session: cookieForProfile(username) || undefined,
+        session: lease.cookie,
         onEvent: (ev) => jobEvent(id, ev),
         onStart: (s) => setJobTrace(id, s.traceId),
       }
@@ -423,6 +450,10 @@ export async function fetchList(username: string, type: "followers" | "following
 export async function fetchListsForAll() {
   const users = getState().order.filter((u) => getState().profiles[u]?.inNetwork)
   for (const u of users) {
+    if (allAtLimit()) {
+      log("warn", "app", `Pobieranie list przerwane: ${dailyLimitError().message}`)
+      break
+    }
     await fetchList(u, "followers")
     await fetchList(u, "following")
   }

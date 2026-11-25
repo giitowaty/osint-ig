@@ -167,6 +167,25 @@ zawiera odpowiednią próbkę; aplikacja nie tworzy ich z brakujących danych.
 | `GET /api/health` | stan silnika, blokada IG, pamięć podręczna |
 | `GET /api/cooldown/reset`, `GET /api/cache/clear` | ręczne zdjęcie blokady / wyczyszczenie pamięci |
 
+## Tempo i dzienny limit (ochrona przed limitem Instagrama)
+
+W panelu **Analiza wielu kont** (Ctrl+Shift+K) są dwa pokrętła, które zmniejszają ryzyko
+limitu 429 i blokady konta — bez żadnych sztuczek, po prostu wolniej i mniej:
+
+- **Tempo** — suwak pauzy między kontami, 2 s – 2 min (skala logarytmiczna), z podglądem
+  „ile kont na minutę” i ostrzeżeniem przy szybkim tempie. Każda pauza ma losowy rozrzut ±30%.
+  Dotyczy kolejki kont i stron listy obserwujących.
+- **Dzienny limit operacji na konto** — domyślnie 300, `0` = bez limitu. Operacja to jedna
+  analiza profilu albo jedna strona listy obserwujących (to 1–4 zapytań do Instagrama).
+  Licznik jest osobny dla każdego konta z puli i zeruje się o północy czasu lokalnego.
+  Konto, które wyczerpało limit, jest pomijane; gdy limit wyczerpią wszystkie, kolejka się
+  **wstrzymuje** (nie przechodzi po cichu na zapytania anonimowe), a panel mówi, dlaczego
+  i co zrobić: zwiększyć limit, dodać konto albo wznowić po północy.
+
+Limit nie obejmuje pracy bez połączonego konta (anonimowo) — tam działa tylko tempo. Pobranie
+list z przycisku „Pobierz” w grafie ma własne losowe pauzy 0,5–5 s po stronie serwera
+(`OSINT_IG_LIST_DELAY_MIN_MS` / `OSINT_IG_LIST_DELAY_MAX_MS`) i też liczy się do limitu.
+
 ## Automatyczna analiza obserwujących
 
 Otwórz publiczny profil w aplikacji i kliknij **Analizuj obserwujących**.

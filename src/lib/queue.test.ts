@@ -17,6 +17,8 @@ type Reply =
 
 const plan = new Map<string, Reply[]>() // klucz: nazwa konta albo "page:<cursor>"
 const calls: string[] = []
+/** Ciasteczka konta użyte przy kolejnych zapytaniach ("anon" = bez sesji). */
+const cookies: string[] = []
 
 vi.mock("./persist", () => ({ flushSaved: vi.fn(async () => true) }))
 vi.mock("./api", async (importOriginal) => {
@@ -24,11 +26,12 @@ vi.mock("./api", async (importOriginal) => {
   const cancelled = () => new real.AppError({ code: "CANCELLED", origin: "client", message: "Anulowano." })
   return {
     ...real,
-    streamJob: vi.fn(async (path: string, opts: { signal?: AbortSignal }) => {
+    streamJob: vi.fn(async (path: string, opts: { signal?: AbortSignal; session?: string }) => {
       const url = new URL(path, "http://test")
       const isPage = url.pathname === "/api/followers/page"
       const key = isPage ? `page:${url.searchParams.get("cursor") ?? ""}` : url.searchParams.get("username")!
       calls.push(isPage ? key : `${key}${url.searchParams.get("userId") ? `#${url.searchParams.get("userId")}` : ""}`)
+      cookies.push(opts.session ?? "anon")
       const reply = plan.get(key)?.shift() ?? { ok: true }
       if (opts.signal?.aborted) throw cancelled()
       if ("hang" in reply) {
@@ -49,6 +52,7 @@ beforeEach(async () => {
   vi.resetModules()
   plan.clear()
   calls.length = 0
+  cookies.length = 0
   store = await import("./store")
   actions = await import("./actions")
   store.patchQueue({ delayMs: 1000 }) // pauza między kontami: 0,7–1,3 s
@@ -260,5 +264,256 @@ describe("analiza obserwujących", () => {
     expect(actions.analyzeFollowers("src")).toBe(true)
     await run(10_000)
     expect(calls).toEqual(["page:", "a1#11"])
+  })
+})
+
+describe("dzienny limit operacji na konto", () => {
+  const addAccount = (cookie: string, account: string) => {
+    const id = store.addSessionSlot()
+    store.patchSessionEntry(id, { cookie, account })
+    return id
+  }
+
+  it("po wyczerpaniu limitu kolejka się wstrzymuje, a nieprzetworzone konta zostają w kolejce", async () => {
+    addAccount("sessionid=1%3Aa", "pomocnicze")
+    store.setDailyLimit(2)
+    actions.enqueue(["a", "b", "c", "d"])
+    await run(60_000)
+    expect(calls).toEqual(["a", "b"]) // trzecia operacja nie wychodzi do Instagrama
+    expect(q()).toMatchObject({ items: ["c", "d"], done: 2, paused: true, running: false })
+    expect(profile("c")).toMatchObject({ status: "error", error: { code: "DAILY_LIMIT" } })
+    expect(profile("c").error?.hint).toMatch(/północy/)
+  })
+
+  it("limit liczy się osobno na konto: praca przechodzi na drugie konto, a gdy oba są wyczerpane — staje", async () => {
+    addAccount("sessionid=1%3Aa", "pierwsze")
+    addAccount("sessionid=2%3Ab", "drugie")
+    store.setDailyLimit(2)
+    actions.enqueue(["a", "b", "c", "d", "e"])
+    await run(120_000)
+    expect(calls).toEqual(["a", "b", "c", "d"])
+    const used = (c: string) => cookies.filter((x) => x === c).length
+    expect(used("sessionid=1%3Aa")).toBe(2)
+    expect(used("sessionid=2%3Ab")).toBe(2)
+    expect(q()).toMatchObject({ items: ["e"], done: 4, paused: true })
+  })
+
+  it("konto, które wyczerpało limit, jest pomijane, dopóki drugie ma zapas", async () => {
+    const first = addAccount("sessionid=1%3Aa", "pierwsze")
+    addAccount("sessionid=2%3Ab", "drugie")
+    store.setDailyLimit(3)
+    // pierwsze konto ma już wykorzystany cały dzisiejszy limit
+    const today = (() => { const d = new Date(); const p = (n: number) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}` })()
+    store.setState({ usage: { [first]: { day: today, count: 3 } } })
+    actions.enqueue(["a", "b"])
+    await run(60_000)
+    expect(cookies).toEqual(["sessionid=2%3Ab", "sessionid=2%3Ab"])
+    expect(q()).toMatchObject({ items: [], done: 2, paused: false })
+  })
+
+  it("limit 0 = bez limitu", async () => {
+    addAccount("sessionid=1%3Aa", "pomocnicze")
+    store.setDailyLimit(0)
+    actions.enqueue(["a", "b", "c", "d", "e"])
+    await run(120_000)
+    expect(calls).toHaveLength(5)
+    expect(q()).toMatchObject({ items: [], done: 5, paused: false })
+  })
+
+  it("praca anonimowa (pusta pula) nie podlega limitowi — nic nie jest zliczane", async () => {
+    store.setDailyLimit(1)
+    actions.enqueue(["a", "b", "c"])
+    await run(60_000)
+    expect(calls).toEqual(["a", "b", "c"])
+    expect(cookies).toEqual(["anon", "anon", "anon"])
+    expect(store.getState().usage).toEqual({})
+  })
+
+  it("pojedyncza analiza z pola wyszukiwania też respektuje limit i nie przechodzi po cichu na tryb anonimowy", async () => {
+    addAccount("sessionid=1%3Aa", "pomocnicze")
+    store.setDailyLimit(1)
+    await actions.analyze("jeden")
+    await actions.analyze("dwa")
+    expect(calls).toEqual(["jeden"])
+    expect(profile("dwa")).toMatchObject({ status: "error", error: { code: "DAILY_LIMIT" } })
+    expect(cookies).toEqual(["sessionid=1%3Aa"]) // żadnego zapytania bez sesji
+  })
+
+  it("po północy licznik się zeruje i wznowiona kolejka kończy pracę", async () => {
+    vi.setSystemTime(new Date(2026, 10, 25, 23, 59, 30))
+    addAccount("sessionid=1%3Aa", "pomocnicze")
+    store.setDailyLimit(1)
+    actions.enqueue(["a", "b"])
+    await run(5_000)
+    expect(calls).toEqual(["a"])
+    expect(q()).toMatchObject({ items: ["b"], paused: true })
+
+    vi.setSystemTime(new Date(2026, 10, 26, 0, 0, 30))
+    actions.resumeQueue()
+    await run(5_000)
+    expect(calls).toEqual(["a", "b"])
+    expect(q()).toMatchObject({ items: [], done: 2, paused: false })
+  })
+
+  it("zwiększenie limitu w trakcie pozwala wznowić pracę tego samego dnia", async () => {
+    addAccount("sessionid=1%3Aa", "pomocnicze")
+    store.setDailyLimit(1)
+    actions.enqueue(["a", "b"])
+    await run(5_000)
+    expect(q()).toMatchObject({ items: ["b"], paused: true })
+    store.setDailyLimit(10)
+    actions.resumeQueue()
+    await run(5_000)
+    expect(q()).toMatchObject({ items: [], done: 2, paused: false })
+  })
+
+  it("analiza obserwujących: strona listy liczy się jako operacja, a wyczerpany limit wstrzymuje analizę z jasnym błędem", async () => {
+    addAccount("sessionid=1%3Aa", "pomocnicze")
+    store.setDailyLimit(1)
+    store.patchProfile("src", {
+      status: "ready",
+      data: { profile: { username: "src", id: "100", private: false, followers: 3 }, posts: [] } as unknown as ProfilePayload,
+    })
+    plan.set("page:", [{ page: { username: "src", userId: "100", users: [{ username: "a1", id: "11" }], nextCursor: null, limited: false } }])
+    expect(actions.analyzeFollowers("src")).toBe(true)
+    await run(30_000)
+    expect(calls).toEqual(["page:"]) // a1 nie został wysłany: limit (1) poszedł na pobranie strony
+    expect(q()).toMatchObject({ items: ["a1"], paused: true, followersSource: { error: { code: "DAILY_LIMIT" } } })
+  })
+
+  it("analiza obserwujących: gdy limit jest już wyczerpany, nawet pobranie strony listy nie wychodzi do Instagrama", async () => {
+    addAccount("sessionid=1%3Aa", "pomocnicze")
+    store.setDailyLimit(1)
+    await actions.analyze("zuzyte") // jedyna dozwolona operacja
+    store.patchProfile("src", {
+      status: "ready",
+      data: { profile: { username: "src", id: "100", private: false, followers: 3 }, posts: [] } as unknown as ProfilePayload,
+    })
+    expect(actions.analyzeFollowers("src")).toBe(true)
+    await run(30_000)
+    expect(calls).toEqual(["zuzyte"]) // ani strony listy, ani kont
+    expect(cookies).toEqual(["sessionid=1%3Aa"])
+    expect(q()).toMatchObject({ paused: true, followersSource: { complete: false, error: { code: "DAILY_LIMIT" } } })
+  })
+
+  it("licznik przenosi się, gdy konto zmienia identyfikator po weryfikacji (tymczasowy → ID z Instagrama)", async () => {
+    const id = addAccount("sessionid=1%3Aa", "pomocnicze")
+    await actions.analyze("a")
+    await actions.analyze("b")
+    expect(store.usageToday(id)).toBe(2)
+    store.patchSessionEntry(id, { meta: { names: ["sessionid"], userId: "424242" } })
+    expect(store.usageToday("424242")).toBe(2)
+    expect(store.usageToday(id)).toBe(0)
+  })
+})
+
+describe("tempo kolejki", () => {
+  it("pauza między kontami wynika z ustawionego tempa (z rozrzutem ±30%)", async () => {
+    store.patchQueue({ delayMs: 20_000 })
+    actions.enqueue(["a", "b"])
+    await run(13_000) // poniżej minimum (14 s)
+    expect(calls).toEqual(["a"])
+    await run(14_000) // razem 27 s: powyżej maksimum (26 s)
+    expect(calls).toEqual(["a", "b"])
+  })
+
+  it("rozrzut ±30%: najkrótsza pauza to 70%, a najdłuższa 130% ustawionego tempa", async () => {
+    const rnd = vi.spyOn(Math, "random")
+    try {
+      rnd.mockReturnValue(0) // najkrótsza: 14 s
+      store.patchQueue({ delayMs: 20_000 })
+      actions.enqueue(["a", "b"])
+      await run(13_500)
+      expect(calls).toEqual(["a"])
+      await run(1_000)
+      expect(calls).toEqual(["a", "b"])
+
+      actions.clearQueue()
+      calls.length = 0
+      store.patchProfile("a", { status: "error" }) // pozwól przeanalizować od nowa
+      store.patchProfile("b", { status: "error" })
+      rnd.mockReturnValue(1) // najdłuższa: 26 s
+      store.patchQueue({ delayMs: 20_000 })
+      actions.enqueue(["a", "b"])
+      await run(25_000)
+      expect(calls).toEqual(["a"])
+      await run(1_500)
+      expect(calls).toEqual(["a", "b"])
+    } finally {
+      rnd.mockRestore()
+    }
+  })
+
+  it("szybkie tempo faktycznie przyspiesza kolejkę", async () => {
+    store.patchQueue({ delayMs: 2_000 })
+    actions.enqueue(["a", "b", "c", "d"])
+    await run(10_000) // 3 pauzy po max 2,6 s
+    expect(calls).toEqual(["a", "b", "c", "d"])
+  })
+})
+
+describe("zapis ustawień tempa i limitu", () => {
+  const memory = () => {
+    const m = new Map<string, string>()
+    return { m, ls: { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v), removeItem: (k: string) => void m.delete(k) } }
+  }
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it("limit i tempo wracają po restarcie aplikacji", async () => {
+    const { ls } = memory()
+    vi.stubGlobal("localStorage", ls)
+    vi.resetModules()
+    const s1 = await import("./store")
+    s1.setDailyLimit(42)
+    s1.patchQueue({ delayMs: 12_000 })
+    vi.resetModules()
+    const s2 = await import("./store")
+    expect(s2.getState().dailyLimit).toBe(42)
+    expect(s2.getState().queue.delayMs).toBe(12_000)
+  })
+
+  it("brak lub uszkodzony zapis limitu = wartość domyślna, a nie „bez limitu”", async () => {
+    for (const stored of [undefined, "abc", "", "-3"]) {
+      const { m, ls } = memory()
+      if (stored !== undefined) m.set("osint-ig-daily-limit", stored)
+      vi.stubGlobal("localStorage", ls)
+      vi.resetModules()
+      const s = await import("./store")
+      expect(s.getState().dailyLimit).toBe(300)
+    }
+  })
+
+  it("zapisany 0 oznacza świadomy wybór „bez limitu”", async () => {
+    const { m, ls } = memory()
+    m.set("osint-ig-daily-limit", "0")
+    vi.stubGlobal("localStorage", ls)
+    vi.resetModules()
+    expect((await import("./store")).getState().dailyLimit).toBe(0)
+  })
+
+  it("zapisane tempo spoza zakresu jest przycinane (np. po zmianie wersji)", async () => {
+    const { m, ls } = memory()
+    m.set("osint-ig-queue-delay", "999999999")
+    vi.stubGlobal("localStorage", ls)
+    vi.resetModules()
+    expect((await import("./store")).getState().queue.delayMs).toBe(120_000)
+  })
+
+  it("liczniki z dzisiaj przeżywają restart, a z wczoraj są odrzucane", async () => {
+    const { m, ls } = memory()
+    vi.stubGlobal("localStorage", ls)
+    vi.resetModules()
+    const s1 = await import("./store")
+    const id = s1.addSessionSlot()
+    s1.patchSessionEntry(id, { cookie: "sessionid=1%3Aa", account: "x" })
+    s1.acquireSession("p1")
+    s1.acquireSession("p2")
+    vi.resetModules()
+    const s2 = await import("./store")
+    expect(s2.usageToday(id)).toBe(2)
+
+    m.set("osint-ig-usage", JSON.stringify({ [id]: { day: "2001-01-01", count: 999 } }))
+    vi.resetModules()
+    expect((await import("./store")).usageToday(id)).toBe(0)
   })
 })

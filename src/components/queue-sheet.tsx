@@ -12,18 +12,12 @@ import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { useNow } from "@/hooks/use-now"
 import { analyzeFollowers, clearQueue, enqueue, parseList, pauseQueue, removeFromQueue, resumeQueue, retryFailed } from "@/lib/actions"
-import { hasAnySession, patchQueue, useStore } from "@/lib/store"
+import { allAtLimitFor, hasAnySession, useStore } from "@/lib/store"
 import { ListPager } from "@/components/list-pager"
+import { PacePanel } from "@/components/pace-panel"
+import { formatWait, msToMidnight } from "@/lib/pace"
 import { duration, pageSlice } from "@/lib/large-lists"
 import { flushSaved } from "@/lib/persist"
-
-const DELAYS = [
-  [2000, "2 s (ryzykownie)"],
-  [5000, "5 s (zalecane)"],
-  [10000, "10 s"],
-  [20000, "20 s (ostrożnie)"],
-  [45000, "45 s (bardzo ostrożnie)"],
-] as const
 
 export const openQueue = () => window.dispatchEvent(new Event("osint:open-queue"))
 export const openFollowersQueue = (username: string) => window.dispatchEvent(new CustomEvent("osint:open-queue", { detail: { username } }))
@@ -43,6 +37,8 @@ export function QueueSheet() {
   const q = useStore((s) => s.queue)
   const sourceProfile = useStore((s) => s.profiles[sourceUser]?.data?.profile)
   const cookie = useStore(hasAnySession)
+  const limitHit = useStore(allAtLimitFor)
+  const dailyLimit = useStore((s) => s.dailyLimit)
   const source = q.followersSource
   const hasWork = q.running || !!q.items.length || !!(source && !source.complete)
   const canResume = !!q.items.length || !!(source && !source.complete)
@@ -114,24 +110,7 @@ export function QueueSheet() {
                   : "Po spacji, przecinku lub w nowych liniach; @ i linki są w porządku."}
               </FieldDescription>
             </Field>}
-            <Field>
-              <FieldLabel>Pauza między kontami</FieldLabel>
-              <Select value={String(q.delayMs)} onValueChange={(v) => patchQueue({ delayMs: Number(v) })}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {DELAYS.map(([ms, label]) => (
-                      <SelectItem key={ms} value={String(ms)}>
-                        {label}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-              <FieldDescription>Każda pauza dostaje losowy rozrzut ±30%.</FieldDescription>
-            </Field>
+            <PacePanel />
           </FieldGroup>
           {!sourceUser && <div className="flex flex-col gap-2"><Button
             disabled={!parsed.length}
@@ -189,6 +168,13 @@ export function QueueSheet() {
               <span>Gotowe <strong className="tnum block text-lg">{Math.max(0, q.done - q.failed.length).toLocaleString("pl-PL")}</strong></span>
               <span>Błędy <strong className="tnum block text-lg">{q.failed.length.toLocaleString("pl-PL")}</strong></span>
             </div>
+            {q.paused && limitHit && (
+              <p role="alert" className="border border-status-warn/40 bg-status-warn/10 p-3 text-sm">
+                <strong>Kolejka wstrzymana: dzienny limit ({dailyLimit} operacji na konto) jest wyczerpany na wszystkich kontach.</strong>{" "}
+                Licznik zeruje się o północy (za {formatWait(msToMidnight(new Date()))}). Możesz zwiększyć limit w polu „Dzienny limit” wyżej albo dodać
+                kolejne konto w widoku Sesja IG, a potem kliknąć Wznów. Konta czekają w kolejce — nic nie przepadło.
+              </p>
+            )}
             {q.items.length > 1 && <p className="text-xs text-muted-foreground">Same pauzy w obecnej kolejce: około {duration((q.items.length - 1) * q.delayMs)}. Pobieranie danych i limity wydłużą ten czas.</p>}
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
               <span role={storage.status === "error" ? "alert" : "status"} className={storage.status === "error" ? "text-status-bad" : ""}>

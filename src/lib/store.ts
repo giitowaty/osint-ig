@@ -4,6 +4,10 @@
  * -------------------------------------------------------------------------- */
 
 import { useSyncExternalStore } from "react"
+import {
+  atLimit, dayKey, DAILY_LIMIT_DEFAULT, parseLimit, renameUsage, TEMPO_DEFAULT_MS, TEMPO_MAX_MS, TEMPO_MIN_MS, usedToday, withUse,
+  type UsageMap,
+} from "./pace"
 import type { ApiErrorBody, FollowerPerson, Health, ProfilePayload, TraceEvent } from "./types"
 
 export type View =
@@ -163,6 +167,10 @@ export interface State {
   routing: Record<string, string>
   dockOpen: boolean
   autoLists: boolean
+  /** Maks. operacji na konto na dobę (analiza profilu lub strona listy); 0 = bez limitu. */
+  dailyLimit: number
+  /** Dzisiejsze operacje na konto (klucz = id konta z puli); zeruje się o północy lokalnej. */
+  usage: UsageMap
   history: string[]
   queue: QueueState
   hydrated: boolean
@@ -177,6 +185,34 @@ const LS = {
   dock: "osint-ig-dock",
   auto: "osint-ig-autofetch",
   sessions: "osint-ig-sessions",
+  dailyLimit: "osint-ig-daily-limit",
+  usage: "osint-ig-usage",
+}
+
+/** Zapisany limit dzienny; brak lub błąd = wartość domyślna (nie „bez limitu”). */
+function readDailyLimit(): number {
+  const raw = lsGet(LS.dailyLimit)
+  return raw == null ? DAILY_LIMIT_DEFAULT : (parseLimit(raw) ?? DAILY_LIMIT_DEFAULT)
+}
+
+/** Zapisane liczniki z dzisiaj; uszkodzone lub stare wpisy są pomijane. */
+function readUsage(): UsageMap {
+  const out: UsageMap = {}
+  try {
+    const today = dayKey(new Date())
+    const raw = JSON.parse(lsGet(LS.usage) || "{}") as Record<string, { day?: unknown; count?: unknown }>
+    for (const [id, v] of Object.entries(raw ?? {})) {
+      if (v && v.day === today && typeof v.count === "number" && Number.isFinite(v.count) && v.count > 0) out[id] = { day: today, count: Math.floor(v.count) }
+    }
+  } catch {
+    /* uszkodzony zapis: liczymy od zera */
+  }
+  return out
+}
+
+function readDelay(): number {
+  const n = Number(lsGet("osint-ig-queue-delay"))
+  return Number.isFinite(n) && n > 0 ? Math.min(TEMPO_MAX_MS, Math.max(TEMPO_MIN_MS, n)) : TEMPO_DEFAULT_MS
 }
 
 let nextTmpId = 1
@@ -278,8 +314,10 @@ let state: State = {
   // Na telefonie dok domyślnie zwinięty (zajmowałby pół ekranu).
   dockOpen: lsGet(LS.dock) ? lsGet(LS.dock) === "1" : typeof window === "undefined" || window.innerWidth >= 768,
   autoLists: lsGet(LS.auto) === "1",
+  dailyLimit: readDailyLimit(),
+  usage: readUsage(),
   history: readHistory(),
-  queue: { items: [], running: false, paused: false, delayMs: Number(lsGet("osint-ig-queue-delay")) || 5000, done: 0, failed: [] },
+  queue: { items: [], running: false, paused: false, delayMs: readDelay(), done: 0, failed: [] },
   hydrated: false,
   storage: { status: "idle" },
 }
@@ -496,6 +534,7 @@ export function setSession(patch: Partial<SessionState>) {
     sessions[0] = { ...merged, id: merged.meta?.userId || prev.id }
   }
   commitSessions(sessions)
+  if (prev && sessions[0].id !== prev.id) moveUsage(prev.id, sessions[0].id)
 }
 
 /** Dodaje puste konto do puli (do wypełnienia ciasteczkami) i zwraca jego id. */
@@ -516,14 +555,53 @@ export function removeSession(id: string) {
 
 /** Aktualizuje jedno konto w puli (po id). Zmiana meta.userId aktualizuje id. */
 export function patchSessionEntry(id: string, patch: Partial<SessionEntry>) {
+  let finalId = id
   const sessions = getState().sessions.map((e) => {
     if (e.id !== id) return e
     const merged = { ...e, ...patch }
-    const newId = merged.meta?.userId || merged.id
-    return { ...merged, id: newId }
+    finalId = merged.meta?.userId || merged.id
+    return { ...merged, id: finalId }
   })
   commitSessions(sessions)
+  if (finalId !== id) moveUsage(id, finalId)
 }
+
+/** Przenosi dzisiejszy licznik operacji, gdy konto zmienia id (tymczasowe → ID z Instagrama). */
+function moveUsage(from: string, to: string) {
+  const usage = renameUsage(getState().usage, from, to)
+  if (usage === getState().usage) return
+  lsSet(LS.usage, JSON.stringify(usage))
+  setState({ usage })
+}
+
+/** Zmienia dzienny limit operacji na konto (0 = bez limitu). Niepoprawna wartość jest ignorowana. */
+export function setDailyLimit(raw: number | string) {
+  const n = parseLimit(raw)
+  if (n == null) return
+  lsSet(LS.dailyLimit, String(n))
+  setState({ dailyLimit: n })
+}
+
+/** Ile operacji konto wykonało dziś. */
+export function usageToday(id: string): number {
+  return usedToday(getState().usage, id, dayKey(new Date()))
+}
+
+/** Konta z ciasteczkami, które nie wyczerpały dziennego limitu. */
+function sessionsUnderLimit(): SessionEntry[] {
+  const { sessions, dailyLimit, usage } = getState()
+  const today = dayKey(new Date())
+  return sessions.filter((e) => e.cookie && !atLimit(usedToday(usage, e.id, today), dailyLimit))
+}
+
+/** Czy są konta z ciasteczkami i wszystkie wyczerpały dzisiejszy limit (bez kont: false). Czysta funkcja stanu — do selektorów. */
+export function allAtLimitFor(s: State): boolean {
+  const today = dayKey(new Date())
+  const withCookie = s.sessions.filter((e) => e.cookie)
+  return withCookie.length > 0 && withCookie.every((e) => atLimit(usedToday(s.usage, e.id, today), s.dailyLimit))
+}
+
+export const allAtLimit = (): boolean => allAtLimitFor(getState())
 
 /**
  * Czy w puli jest jakiekolwiek konto z ciasteczkami. Do bramkowania funkcji
@@ -532,32 +610,46 @@ export function patchSessionEntry(id: string, patch: Partial<SessionEntry>) {
  */
 export const hasAnySession = (s: State): boolean => s.sessions.some((e) => !!e.cookie)
 
-/** Konta puli gotowe do pracy: mają cookie i nie są w cooldownie (wg health). */
+/** Konta gotowe do pracy: mają cookie, nie wyczerpały dziennego limitu i nie są w cooldownie (wg health). */
 function usableSessions(): SessionEntry[] {
-  const { sessions, health } = getState()
-  const accounts = health.info?.cooldown?.accounts
-  return sessions.filter((e) => e.cookie && !accounts?.[e.id]?.active)
+  const accounts = getState().health.info?.cooldown?.accounts
+  return sessionsUnderLimit().filter((e) => !accounts?.[e.id]?.active)
+}
+
+/** Wynik wyboru konta do jednej operacji. */
+export interface SessionLease {
+  /** Ciasteczka wybranego konta; brak = praca anonimowa (pula jest pusta). */
+  cookie?: string
+  /** Pula ma konta, ale wszystkie wyczerpały dzisiejszy limit: operacji nie wolno wysyłać. */
+  blocked?: boolean
 }
 
 /**
- * Wybiera konto z puli dla danego profilu (strategia: jedno konto na profil).
- * Trzyma się raz przypisanego konta; jeśli ono w cooldownie/zniknęło — bierze
- * następne round-robin (najmniej obciążone). Zwraca cookie albo undefined.
+ * Wybiera konto z puli dla jednej operacji (analiza profilu albo strona listy)
+ * i dolicza ją do dziennego licznika tego konta (strategia: jedno konto na profil).
+ * Trzyma się raz przypisanego konta; jeśli ono w cooldownie, wyczerpało limit albo
+ * zniknęło — bierze następne round-robin (najmniej obciążone). Gdy wszystkie konta
+ * wyczerpały limit, zwraca `blocked` zamiast po cichu przechodzić na zapytania
+ * anonimowe. Pusta pula = praca anonimowa, bez liczenia.
  */
-export function cookieForProfile(username: string): string | undefined {
+export function acquireSession(username: string): SessionLease {
   const { sessions, routing } = getState()
-  const pool = sessions.filter((e) => e.cookie)
-  if (!pool.length) return undefined
+  if (!sessions.some((e) => e.cookie)) return {}
+  const eligible = sessionsUnderLimit()
+  if (!eligible.length) return { blocked: true }
   const usable = usableSessions()
-  const prevId = routing[username]
-  const prev = usable.find((e) => e.id === prevId)
-  if (prev) return prev.cookie
-  // Brak przypisania lub konto niedostępne: round-robin po najmniej obciążonych.
-  const pick = (usable.length ? usable : pool)
-  const counts = new Map<string, number>(pick.map((e) => [e.id, 0]))
-  for (const sid of Object.values(routing)) if (counts.has(sid)) counts.set(sid, counts.get(sid)! + 1)
-  let best = pick[0]
-  for (const e of pick) if ((counts.get(e.id) ?? 0) < (counts.get(best.id) ?? 0)) best = e
-  setState({ routing: { ...routing, [username]: best.id } })
-  return best.cookie
+  const prev = usable.find((e) => e.id === routing[username])
+  let chosen = prev
+  if (!chosen) {
+    // Brak przypisania lub konto niedostępne: round-robin po najmniej obciążonych.
+    const pick = usable.length ? usable : eligible
+    const counts = new Map<string, number>(pick.map((e) => [e.id, 0]))
+    for (const sid of Object.values(routing)) if (counts.has(sid)) counts.set(sid, counts.get(sid)! + 1)
+    chosen = pick[0]
+    for (const e of pick) if ((counts.get(e.id) ?? 0) < (counts.get(chosen.id) ?? 0)) chosen = e
+  }
+  const usage = withUse(getState().usage, chosen.id, dayKey(new Date()))
+  lsSet(LS.usage, JSON.stringify(usage))
+  setState({ usage, routing: { ...routing, [username]: chosen.id } })
+  return { cookie: chosen.cookie }
 }
