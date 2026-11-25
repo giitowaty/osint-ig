@@ -141,7 +141,7 @@ rozstrzygana głosowaniem źródeł (PESEL najwyższa waga). Runtime ładuje tyl
 
 | Element | Status |
 |---------|--------|
-| Front (wszystkie widoki), kolejka, pula kont, eksport, zapis IndexedDB | ✅ testy vitest (33) + uruchomienie w przeglądarce |
+| Front (wszystkie widoki), kolejka, pula kont, eksport, zapis IndexedDB | ✅ testy vitest (49, w tym 16 testów kolejki) + uruchomienie w przeglądarce |
 | Backend: parsowanie, analiza treści, słownik, ciasteczka, fallback GraphQL | ✅ testy (54 + 4 + 6 + 8) na mockach IG |
 | Bezpieczeństwo serwera (Host, Origin, import z Firefoksa) | ✅ testy `api/server-security.check.cjs` |
 | Moduł Pythona `social_analytics` | ✅ 58 testów (z `networkx`); bez niego testy grafu są pomijane |
@@ -173,4 +173,3 @@ rozstrzygana głosowaniem źródeł (PESEL najwyższa waga). Runtime ładuje tyl
 - Przycisk w rozszerzeniu „wyślij prosto do OSINT-IG” (bez kopiuj-wklej).
 - Eksport grafu do PNG/SVG.
 - Integracja Graph API dla własnych kont (jedyna „czysta” droga do followersów).
-- Test jednostkowy kolejki (`runQueue`): anulowanie, limit 429, wznowienie.
