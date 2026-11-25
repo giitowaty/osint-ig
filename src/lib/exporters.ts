@@ -134,9 +134,11 @@ export function downloadText(name: string, text: string, type = "text/plain") {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000)
 }
 
-export function downloadDataUrl(name: string, url: string) {
+/** Zapis pliku binarnego (np. PNG). Blob zamiast data URL: duże obrazy nie znikają po cichu. */
+export function downloadBlob(name: string, blob: Blob) {
   const a = document.createElement("a")
-  a.href = url
+  a.href = URL.createObjectURL(blob)
   a.download = name
   a.click()
+  setTimeout(() => URL.revokeObjectURL(a.href), 10_000)
 }

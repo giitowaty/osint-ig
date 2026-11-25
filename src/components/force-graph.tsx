@@ -15,7 +15,7 @@ const COMMUNITY_COLORS = [
   "#56c7c0", "#e06c4f", "#8b93f0", "#6fbf73", "#c99a3f",
 ]
 
-interface SimNode extends GNode {
+export interface SimNode extends GNode {
   x: number
   y: number
   vx: number
@@ -25,11 +25,70 @@ interface SimNode extends GNode {
   degree: number
 }
 
+export interface PngExport {
+  blob: Blob
+  width: number
+  height: number
+}
+
 export interface ForceGraphHandle {
   fit: () => void
   reheat: () => void
-  /** Zrzut grafu (z tłem) jako data URL PNG. */
-  toPng: () => string | null
+  /** Zrzut tego, co widać na ekranie (z tłem). */
+  toPng: () => Promise<PngExport | null>
+  /** Cały graf dopasowany do obrazu, w wysokiej rozdzielczości (z podpisem na dole). */
+  toPngFull: (caption?: string) => Promise<PngExport | null>
+}
+
+interface DrawTarget {
+  ctx: CanvasRenderingContext2D
+  size: { w: number; h: number; dpr: number }
+  view: { x: number; y: number; k: number }
+  labelAll?: boolean
+  caption?: string
+}
+
+// Limity płótna bezpieczne dla Chrome/WebView2/Safari.
+const MAX_SIDE_PX = 8192
+const MAX_AREA_PX = 32_000_000
+/** Do tylu węzłów eksport podpisuje wszystkie konta; powyżej napisy zlałyby się w plamę. */
+const LABEL_ALL_MAX_NODES = 400
+
+/**
+ * Rozmiar i skala eksportu całego grafu. Mały graf jest powiększany (dłuższy bok
+ * ≥ ok. 1600 px), duży zmniejszany tak, by zmieścić się w limitach płótna.
+ */
+export function fullExportLayout(bounds: { x0: number; y0: number; x1: number; y1: number }, preferDpr = 2) {
+  const pad = 56
+  const footer = 28
+  const bw = Math.max(1, bounds.x1 - bounds.x0)
+  const bh = Math.max(1, bounds.y1 - bounds.y0)
+  let k = Math.min(2.5, Math.max(1, 1600 / Math.max(bw, bh)))
+  let dpr = preferDpr
+  const dims = () => ({ w: Math.ceil(bw * k + pad * 2), h: Math.ceil(bh * k + pad * 2 + footer) })
+  const fitFactor = () => {
+    const { w, h } = dims()
+    return Math.min(1, MAX_SIDE_PX / (w * dpr), MAX_SIDE_PX / (h * dpr), Math.sqrt(MAX_AREA_PX / (w * h * dpr * dpr)))
+  }
+  // Najpierw obniżamy gęstość pikseli, dopiero potem zmniejszamy sam graf.
+  let f = fitFactor()
+  if (f < 1) {
+    dpr = Math.max(1, dpr * f)
+    f = fitFactor()
+  }
+  // Pętla, bo margines i stopka nie skalują się razem z grafem.
+  for (let i = 0; f < 1 && i < 20; i++) {
+    k *= f * 0.98
+    f = fitFactor()
+  }
+  const { w, h } = dims()
+  return { w, h, dpr, view: { k, x: pad - bounds.x0 * k, y: pad - bounds.y0 * k } }
+}
+
+function canvasToPng(canvas: HTMLCanvasElement): Promise<PngExport | null> {
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob ? { blob, width: canvas.width, height: canvas.height } : null), "image/png")
+  })
 }
 
 interface Palette {
@@ -66,7 +125,7 @@ function readPalette(el: HTMLElement): Palette {
 
 /* --------------------------- Barnes-Hut quadtree ---------------------------- */
 
-interface Quad {
+export interface Quad {
   x0: number
   y0: number
   size: number
@@ -77,7 +136,7 @@ interface Quad {
   kids: (Quad | null)[] | null
 }
 
-function buildQuad(nodes: SimNode[]): Quad | null {
+export function buildQuad(nodes: SimNode[]): Quad | null {
   if (!nodes.length) return null
   let x0 = Infinity,
     y0 = Infinity,
@@ -129,18 +188,52 @@ function buildQuad(nodes: SimNode[]): Quad | null {
   return root
 }
 
-function repel(q: Quad, n: SimNode, strength: number, theta2: number) {
+// Odpychanie liczymy co najmniej z tej odległości (px²). Bez dolnej granicy dwa
+// węzły 0,1 px od siebie dostają „kopniaka” rzędu tysięcy px i graf wybucha.
+const MIN_REPEL_D2 = 36
+/** Maksymalne przesunięcie węzła w jednym kroku symulacji (px). */
+export const MAX_STEP = 40
+
+export function repel(q: Quad, n: SimNode, strength: number, theta2: number) {
   if (!q.mass || q.node === n) return
-  const dx = q.cx - n.x
-  const dy = q.cy - n.y
-  const d2 = dx * dx + dy * dy || 0.01
-  if (!q.kids || (q.size * q.size) / d2 < theta2) {
+  let dx = q.cx - n.x
+  let dy = q.cy - n.y
+  if (dx * dx + dy * dy < 1e-6) {
+    // Węzły w tym samym punkcie: losowy kierunek, żeby się rozsunęły.
+    const a = Math.random() * Math.PI * 2
+    dx = Math.cos(a) * 1e-3
+    dy = Math.sin(a) * 1e-3
+  }
+  const raw = dx * dx + dy * dy
+  if (!q.kids || (q.size * q.size) / raw < theta2) {
+    const d2 = Math.max(raw, MIN_REPEL_D2)
     const f = (strength * q.mass) / d2
     n.vx -= dx * f
     n.vy -= dy * f
     return
   }
   for (const k of q.kids) if (k) repel(k, n, strength, theta2)
+}
+
+/**
+ * Przesuwa węzeł o jego prędkość z limitem MAX_STEP. Węzeł z niepoprawną pozycją
+ * (NaN/∞) wraca w pobliże środka — jeden taki węzeł psuł dopasowanie widoku
+ * (przesunięcie ∞) i cały graf znikał z ekranu i z eksportu.
+ */
+export function integrate(n: Pick<SimNode, "x" | "y" | "vx" | "vy">) {
+  if (!Number.isFinite(n.vx) || !Number.isFinite(n.vy)) n.vx = n.vy = 0
+  const v = Math.hypot(n.vx, n.vy)
+  if (v > MAX_STEP) {
+    n.vx *= MAX_STEP / v
+    n.vy *= MAX_STEP / v
+  }
+  n.x += n.vx
+  n.y += n.vy
+  if (!Number.isFinite(n.x) || !Number.isFinite(n.y)) {
+    n.x = (Math.random() - 0.5) * 100
+    n.y = (Math.random() - 0.5) * 100
+    n.vx = n.vy = 0
+  }
 }
 
 /* ------------------------------ Komponent ----------------------------------- */
@@ -213,7 +306,7 @@ export const ForceGraph = React.forwardRef<
     () => ({
       fit,
       reheat: () => kick(0.8),
-      toPng: () => {
+      toPng: async () => {
         const c = canvasRef.current
         if (!c) return null
         draw()
@@ -225,7 +318,27 @@ export const ForceGraph = React.forwardRef<
         ctx.fillStyle = (sim.current.palette ??= readPalette(c)).bg
         ctx.fillRect(0, 0, out.width, out.height)
         ctx.drawImage(c, 0, 0)
-        return out.toDataURL("image/png")
+        return canvasToPng(out)
+      },
+      toPngFull: async (caption?: string) => {
+        const s = sim.current
+        if (!canvasRef.current || !s.nodes.length) return null
+        const bounds = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity }
+        for (const n of s.nodes) {
+          bounds.x0 = Math.min(bounds.x0, n.x - n.r)
+          bounds.y0 = Math.min(bounds.y0, n.y - n.r)
+          bounds.x1 = Math.max(bounds.x1, n.x + n.r)
+          bounds.y1 = Math.max(bounds.y1, n.y + n.r + 18) // miejsce na podpis pod węzłem
+        }
+        const lay = fullExportLayout(bounds)
+        const out = document.createElement("canvas")
+        out.width = Math.round(lay.w * lay.dpr)
+        out.height = Math.round(lay.h * lay.dpr)
+        const ctx = out.getContext("2d")
+        if (!ctx) return null
+        draw({ ctx, size: { w: lay.w, h: lay.h, dpr: lay.dpr }, view: lay.view,
+          labelAll: s.nodes.length <= LABEL_ALL_MAX_NODES, caption })
+        return canvasToPng(out)
       },
     }),
      
@@ -316,27 +429,36 @@ export const ForceGraph = React.forwardRef<
       }
       n.vx *= 0.55
       n.vy *= 0.55
-      n.x += n.vx
-      n.y += n.vy
+      integrate(n)
     }
     s.alpha *= 0.985
   }
 
-  function draw() {
+  /**
+   * Rysuje graf. Bez argumentu — na ekranowe płótno w bieżącym widoku. Z celem
+   * (eksport) — na podane płótno, z pełnym tłem i bez stanu myszy (hover/zaznaczenie).
+   */
+  function draw(target?: DrawTarget) {
     const s = sim.current
     const c = canvasRef.current
     if (!c) return
-    const ctx = c.getContext("2d")
+    const ctx = target ? target.ctx : c.getContext("2d")
     if (!ctx) return
     const pal = (s.palette ??= readPalette(c))
-    const { w, h, dpr } = s.size
+    const { w, h, dpr } = target ? target.size : s.size
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    ctx.clearRect(0, 0, w, h)
-    const { x: tx, y: ty, k } = s.view
+    if (target) {
+      ctx.fillStyle = pal.bg
+      ctx.fillRect(0, 0, w, h)
+    } else {
+      ctx.clearRect(0, 0, w, h)
+    }
+    const { x: tx, y: ty, k } = target ? target.view : s.view
     ctx.setTransform(dpr * k, 0, 0, dpr * k, dpr * tx, dpr * ty)
 
-    const sel = selectedRef.current ? s.byId.get(selectedRef.current) : null
-    const focus = s.hover ?? sel
+    const hover = target ? null : s.hover
+    const sel = !target && selectedRef.current ? s.byId.get(selectedRef.current) : null
+    const focus = hover ?? sel
     const hood = focus ? s.neighbors.get(focus.id) : null
     const sharedOnly = focusRef.current
     const dim = (n: SimNode) =>
@@ -393,7 +515,7 @@ export const ForceGraph = React.forwardRef<
       ctx.lineWidth = 2 / k
       ctx.strokeStyle = pal.bg
       ctx.stroke()
-      if (n === sel || n === s.hover) {
+      if (n === sel || n === hover) {
         ctx.beginPath()
         ctx.arc(n.x, n.y, n.r + 4 / k, 0, Math.PI * 2)
         ctx.lineWidth = 1.5 / k
@@ -409,10 +531,11 @@ export const ForceGraph = React.forwardRef<
       const show =
         n.kind === "analyzed" ||
         n === sel ||
-        n === s.hover ||
+        n === hover ||
         (focus && hood?.has(n.id)) ||
         (n.shared && k > 0.7) ||
-        k > 1.8
+        k > 1.8 ||
+        target?.labelAll
       if (!show || dim(n)) continue
       const size = (n.kind === "analyzed" ? 12.5 : 11) / k
       ctx.font = `${n.kind === "analyzed" ? 600 : 400} ${size}px ${pal.font}`
@@ -426,6 +549,14 @@ export const ForceGraph = React.forwardRef<
       ctx.fillText(label, n.x, y)
     }
     ctx.globalAlpha = 1
+    if (target?.caption) {
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      ctx.font = `400 12px ${pal.font}`
+      ctx.textAlign = "left"
+      ctx.textBaseline = "bottom"
+      ctx.fillStyle = pal.muted
+      ctx.fillText(target.caption, 16, h - 12)
+    }
   }
 
   function tick() {

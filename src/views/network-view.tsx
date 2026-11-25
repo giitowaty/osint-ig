@@ -39,9 +39,9 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { analyze, applyPastedList, fetchList, fetchListsForAll } from "@/lib/actions"
 import { fmtCompact } from "@/lib/analysis"
-import { cypher, downloadDataUrl, downloadText, edgesCsv, gexf, nodeLink, nodesCsv } from "@/lib/exporters"
+import { cypher, downloadBlob, downloadText, edgesCsv, gexf, nodeLink, nodesCsv } from "@/lib/exporters"
 import { buildGraph, communities, communityCount, graphPreview, rankInfluential, INFLUENCE_LABEL, type GraphModel } from "@/lib/graph"
-import { hasAnySession, navigate, setAutoLists, useStore, type ProfileEntry } from "@/lib/store"
+import { hasAnySession, log, navigate, setAutoLists, useStore, type ProfileEntry } from "@/lib/store"
 import { cn } from "@/lib/utils"
 
 export function useGraphModel(opts: { hashtags: boolean; lists: boolean; minSources: number; focus?: string | null }) {
@@ -83,16 +83,36 @@ function Legend({ hashtags, lists }: { hashtags: boolean; lists: boolean }) {
 
 function ExportMenu({
   model,
+  shown,
   graphRef,
   canPng,
 }: {
   model: GraphModel
+  /** Model faktycznie narysowany (przy dużej sieci: widok skupiony). */
+  shown: GraphModel
   graphRef: React.RefObject<ForceGraphHandle | null>
   canPng: boolean
 }) {
   const stamp = () => new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")
   const large = model.nodes.length > 400 || model.edges.length > 4000
   const rank = () => large ? [] : rankInfluential(model)
+  const savePng = async (kind: "full" | "view") => {
+    const g = graphRef.current
+    if (!g) return
+    const partial = shown.nodes.length < model.nodes.length
+    const caption = `OSINT-IG · graf powiązań · ${shown.nodes.length.toLocaleString("pl-PL")} węzłów` +
+      (partial ? ` z ${model.nodes.length.toLocaleString("pl-PL")} (widok skupiony)` : "") +
+      ` · ${shown.edges.length.toLocaleString("pl-PL")} powiązań · ${new Date().toLocaleString("pl-PL")}`
+    try {
+      const png = kind === "full" ? await g.toPngFull(caption) : await g.toPng()
+      if (!png) throw new Error("Przeglądarka nie utworzyła obrazu (zbyt duże płótno albo brak pamięci).")
+      const name = `osint-ig-graf-${kind === "full" ? "caly" : "widok"}-${stamp()}.png`
+      downloadBlob(name, png.blob)
+      log("ok", "app", `Zapisano ${name}: ${png.width}×${png.height} px, ${(png.blob.size / 1024 / 1024).toFixed(1)} MB.`)
+    } catch (e) {
+      log("error", "app", "Eksport grafu do PNG nie powiódł się.", { detail: e instanceof Error ? e.message : String(e) })
+    }
+  }
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -106,13 +126,17 @@ function ExportMenu({
           <DropdownMenuLabel>Obraz</DropdownMenuLabel>
           <DropdownMenuItem
             disabled={!canPng}
-            onSelect={() => {
-              const url = graphRef.current?.toPng()
-              if (url) downloadDataUrl(`osint-ig-graf-${stamp()}.png`, url)
-            }}
+            onSelect={() => void savePng("full")}
           >
             <ImageIcon />
-            PNG (aktualny widok)
+            PNG — cały graf (wysoka rozdzielczość)
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={!canPng}
+            onSelect={() => void savePng("view")}
+          >
+            <ImageIcon />
+            PNG — aktualny widok
           </DropdownMenuItem>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
@@ -453,7 +477,7 @@ export function NetworkView() {
           <span className="tnum hidden text-xs text-muted-foreground xl:inline">
             {analyzed.length} profili · {model.nodes.length} węzłów · {model.edges.length} relacji · {sharedCount} wspólnych{communityMap ? ` · ${communityN} społeczności` : ""}
           </span>
-          <ExportMenu model={fullModel} graphRef={graphRef} canPng={mode === "graph"} />
+          <ExportMenu model={fullModel} shown={model} graphRef={graphRef} canPng={mode === "graph"} />
           <ListsSheet />
           {mode === "graph" && (
             <Tooltip>
@@ -468,7 +492,7 @@ export function NetworkView() {
         </div>
       </div>
 
-      {truncated && <p className="border-b px-4 py-2 text-xs text-muted-foreground">Widok skupiony: {model.nodes.length} z {fullModel.nodes.length.toLocaleString("pl-PL")} węzłów. Wyszukaj konto, aby zobaczyć jego otoczenie. Eksport danych obejmuje całą sieć; PNG zapisuje widok.</p>}
+      {truncated && <p className="border-b px-4 py-2 text-xs text-muted-foreground">Widok skupiony: {model.nodes.length} z {fullModel.nodes.length.toLocaleString("pl-PL")} węzłów. Wyszukaj konto, aby zobaczyć jego otoczenie. Eksport danych obejmuje całą sieć; PNG zapisuje narysowany fragment.</p>}
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         <div className="relative min-h-[360px] min-w-0 flex-1 bg-card">
           {analyzed.length === 0 ? (
