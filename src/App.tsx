@@ -23,15 +23,58 @@ import { useEngineBridge } from "@/hooks/use-engine"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useHashRoute } from "@/hooks/use-hash-route"
 import { getState, setDockOpen, useStore, type View } from "@/lib/store"
-import { ActivityView } from "@/views/activity-view"
-import { AudienceView } from "@/views/audience-view"
-import { CompareView } from "@/views/compare-view"
-import { ContentView } from "@/views/content-view"
-import { InfluenceView } from "@/views/influence-view"
-import { NetworkView } from "@/views/network-view"
 import { OverviewView } from "@/views/overview-view"
-import { SessionView } from "@/views/session-view"
-import { ToolsView } from "@/views/tools-view"
+
+/*
+ * Szybki start: w głównej paczce jest tylko widok startowy (Przegląd). Pozostałe
+ * widoki — razem z ciężkimi bibliotekami (recharts, silnik grafu) — ładują się
+ * osobno. Po pierwszym renderze dociągamy je w tle, więc przełączanie zostaje
+ * natychmiastowe, a start nie czeka na kod, którego jeszcze nie widać.
+ */
+type LazyView = Exclude<View, "overview">
+const imports: Record<LazyView, () => Promise<React.ComponentType>> = {
+  content: () => import("@/views/content-view").then((m) => m.ContentView),
+  audience: () => import("@/views/audience-view").then((m) => m.AudienceView),
+  network: () => import("@/views/network-view").then((m) => m.NetworkView),
+  influence: () => import("@/views/influence-view").then((m) => m.InfluenceView),
+  activity: () => import("@/views/activity-view").then((m) => m.ActivityView),
+  session: () => import("@/views/session-view").then((m) => m.SessionView),
+  tools: () => import("@/views/tools-view").then((m) => m.ToolsView),
+  compare: () => import("@/views/compare-view").then((m) => m.CompareView),
+}
+
+// Widoki już pobrane renderujemy wprost: React.lazy przy pierwszym renderze zawsze
+// pokazuje fallback i trzyma go ≥300 ms, nawet gdy kod jest gotowy.
+const loadedViews: Partial<Record<LazyView, React.ComponentType>> = {}
+const loaders = Object.fromEntries(
+  (Object.keys(imports) as LazyView[]).map((k) => [k, () => imports[k]().then((c) => { loadedViews[k] = c; return c })])
+) as Record<LazyView, () => Promise<React.ComponentType>>
+
+const LAZY_VIEWS = Object.fromEntries(
+  (Object.keys(loaders) as LazyView[]).map((k) => [k, React.lazy(() => loaders[k]().then((c) => ({ default: c })))])
+) as Record<LazyView, React.LazyExoticComponent<React.ComponentType>>
+
+/** Dociąga kod pozostałych widoków, gdy przeglądarka jest bezczynna. */
+function usePrefetchViews() {
+  React.useEffect(() => {
+    const run = () => { for (const load of Object.values(loaders)) void load().catch(() => {}) }
+    if ("requestIdleCallback" in window) {
+      const id = window.requestIdleCallback(run, { timeout: 3000 })
+      return () => window.cancelIdleCallback(id)
+    }
+    const id = setTimeout(run, 1500)
+    return () => clearTimeout(id)
+  }, [])
+}
+
+function ViewFallback() {
+  return (
+    <div className="flex h-full items-center justify-center text-muted-foreground" role="status">
+      <Spinner className="size-5" />
+      <span className="sr-only">Ładowanie widoku…</span>
+    </div>
+  )
+}
 
 const VIEW_TITLE: Record<View, string> = {
   overview: "Przegląd",
@@ -171,26 +214,17 @@ function Dock() {
 
 function CurrentView() {
   const view = useStore((s) => s.view)
-  switch (view) {
-    case "overview":
-      return <OverviewView />
-    case "content":
-      return <ContentView />
-    case "audience":
-      return <AudienceView />
-    case "network":
-      return <NetworkView />
-    case "influence":
-      return <InfluenceView />
-    case "activity":
-      return <ActivityView />
-    case "session":
-      return <SessionView />
-    case "tools":
-      return <ToolsView />
-    case "compare":
-      return <CompareView />
-  }
+  // Wybór ustalany raz na wejście w widok (rodzic ma key={view}): przeskok z wersji
+  // lazy na gotową w trakcie pracy przemontowałby widok i zgubił jego stan.
+  const [Ready] = React.useState(() => (view === "overview" ? undefined : loadedViews[view]))
+  if (view === "overview") return <OverviewView />
+  if (Ready) return <Ready />
+  const Lazy = LAZY_VIEWS[view]
+  return (
+    <React.Suspense fallback={<ViewFallback />}>
+      <Lazy />
+    </React.Suspense>
+  )
 }
 
 export default function App() {
@@ -202,6 +236,7 @@ export default function App() {
   useHashRoute()
   useCookiePaste()
   useExtensionBridge()
+  usePrefetchViews()
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

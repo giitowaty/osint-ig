@@ -43,6 +43,9 @@ src-tauri/         – powłoka desktopowa (Rust)
 social_analytics/  – moduł Pythona: graf, NLP, metryki, eksport Neo4j, dashboard
 ```
 
+**Start:** w głównej paczce jest tylko widok Przegląd; pozostałe widoki (z
+`recharts` i silnikiem grafu) ładują się osobno i są dociągane w tle po starcie.
+
 **Zasada:** backend serwuje i front, i API z jednego procesu/portu. Przyjmuje
 tylko nagłówek `Host` wskazujący na ten komputer i odrzuca zapytania z obcych
 stron (ochrona przed DNS rebinding i CSRF).
@@ -166,8 +169,6 @@ rozstrzygana głosowaniem źródeł (PESEL najwyższa waga). Runtime ładuje tyl
 
 - Test end-to-end z żywym Instagramem na osobnym koncie i aktualizacja
   identyfikatorów zapytań GraphQL (`doc_id`), gdy IG je zmieni.
-- Podział paczki frontu (ok. 1,2 MB JS w jednym pliku) — leniwe ładowanie widoków
-  grafu, wpływu i porównania przyspieszy start.
 - Suwak opóźnienia/limitu w panelu kolejki i krótka notka opsec przy starcie.
 - Przycisk w rozszerzeniu „wyślij prosto do OSINT-IG” (bez kopiuj-wklej).
 - Eksport grafu do PNG/SVG.
