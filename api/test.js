@@ -296,6 +296,15 @@ ok3("wstrzyknięcie nagłówka (CR/LF, spacje) → BAD_REQUEST", () => {
   assert.throws(() => sessionFromHeaders({ "x-ig-cookies": "sessionid=a\r\nX-Evil: 1" }), (e) => e.code === "BAD_REQUEST");
   assert.throws(() => sessionFromHeaders({ "x-ig-session": "abc def" }), (e) => e.code === "BAD_REQUEST");
 });
+ok3("uszkodzone kodowanie % w sessionid nie wywraca zapytania; ID nieznane", () => {
+  const s = sessionFromHeaders({ "x-ig-cookies": "sessionid=12%ZZbad%3Ax; csrftoken=T" });
+  assert.strictEqual(s.userId, null);
+  assert.ok(s.cookie.startsWith("sessionid=12%ZZbad"));
+});
+ok3("ID konta: z sessionid bez ds_user_id, a nie-cyfrowe ID jest odrzucane", () => {
+  assert.strictEqual(sessionFromHeaders({ "x-ig-cookies": "sessionid=777%3Aabc%3A1" }).userId, "777");
+  assert.strictEqual(sessionFromHeaders({ "x-ig-cookies": "sessionid=abc%3Adef" }).userId, null);
+});
 ok3("tryb zgodności: samo sessionid w x-ig-session", () => {
   const s = sessionFromHeaders({ "x-ig-session": "55%3Aqq%3A1" });
   assert.strictEqual(s.cookie, "sessionid=55%3Aqq%3A1");

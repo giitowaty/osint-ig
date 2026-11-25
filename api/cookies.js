@@ -67,10 +67,15 @@ function sessionFromHeaders(headers) {
     });
   }
   const cookie = [...jar].map(([k, v]) => `${k}=${v}`).join("; ");
+  // ID konta: z ds_user_id albo z początku sessionid („12345%3A…”). Uszkodzone kodowanie %
+  // nie może wywrócić zapytania — wtedy po prostu nie znamy ID.
+  let fromSession = "";
+  try { fromSession = decodeURIComponent(jar.get("sessionid")).split(":")[0]; } catch { fromSession = ""; }
+  const userId = jar.get("ds_user_id") || fromSession;
   return {
     cookie,
     csrf: jar.get("csrftoken") || null,
-    userId: jar.get("ds_user_id") || decodeURIComponent(jar.get("sessionid")).split(":")[0] || null,
+    userId: /^\d+$/.test(userId || "") ? userId : null,
     names: [...jar.keys()],
   };
 }

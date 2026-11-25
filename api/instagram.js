@@ -482,29 +482,64 @@ async function fetchFriendList(trace, username, type, session, limit) {
   };
 }
 
-/** Zwraca konto powiązane z cookie sesji. */
-async function fetchWhoami(trace, session) {
-  const { json, upstream } = await igGet(trace, {
-    stage: "session",
-    label: "GET web viewer (konto zalogowanej sesji)",
-    url: viewerUrl(),
-    session,
-  });
-  const u = json && json.data && json.data.user;
-  if (!u) {
-    throw new ApiError("IG_SESSION_INVALID", { stage: "session", upstream });
-  }
-  if (!u.username || !u.id) {
-    throw new ApiError("IG_BAD_RESPONSE", { stage: "session", upstream, message: "Nie udało się odczytać konta sesji." });
-  }
+// Weryfikacja sesji: kilka metod, bo Instagram wycofuje stare zapytania (query_hash).
+// Twarde sygnały (wylogowanie, checkpoint, limit) przerywają od razu; pozostałe
+// błędy (np. 404 albo odpowiedź bez konta) przechodzą do następnej metody.
+const WHOAMI_STOP = new Set(["IG_SESSION_INVALID", "IG_LOGIN_REQUIRED", "IG_CHECKPOINT", "IG_RATE_LIMITED"]);
+
+/** Wyłuskuje tylko publiczne pola konta (żadnych danych prywatnych z odpowiedzi). */
+function whoFrom(u, via, session) {
+  const id = u && String(u.pk || u.id || "");
+  if (!u || !u.username || !id) return null;
   return {
     ok: true,
-    username: u.username,
+    username: String(u.username),
     fullName: u.full_name || "",
     avatar: u.profile_pic_url || "",
-    userId: String(u.id),
+    userId: id,
     cookies: session.names,
+    via,
   };
+}
+
+/** Zwraca konto powiązane z cookie sesji (kolejno: users/{id}/info, current_user, stare query_hash). */
+async function fetchWhoami(trace, session) {
+  const methods = [];
+  if (session.userId && /^\d+$/.test(session.userId)) {
+    methods.push({ via: "users/info", label: `GET users/${session.userId}/info (konto sesji)`,
+      url: `https://www.instagram.com/api/v1/users/${session.userId}/info/`,
+      pick: (j) => j && j.user && String(j.user.pk || j.user.id) === session.userId ? j.user : null });
+  }
+  methods.push({ via: "current_user", label: "GET accounts/current_user (konto sesji)",
+    url: "https://www.instagram.com/api/v1/accounts/current_user/?edit=true",
+    pick: (j) => j && j.user });
+  methods.push({ via: "viewer", label: "GET web viewer (stare zapytanie query_hash)",
+    url: viewerUrl(), pick: (j) => j && j.data && j.data.user });
+
+  let lastError = null;
+  let noUser = 0;
+  for (const m of methods) {
+    try {
+      const { json, upstream } = await igGet(trace, { stage: "session", label: m.label, url: m.url, session });
+      const who = whoFrom(m.pick(json), m.via, session);
+      if (who) {
+        if (m.via !== methods[0].via) trace.log("info", `Sesję zweryfikowano zapasową metodą (${m.via}).`);
+        return who;
+      }
+      noUser++;
+      lastError = new ApiError("IG_BAD_RESPONSE", { stage: "session", upstream, message: "Instagram nie zwrócił konta sesji tą metodą." });
+    } catch (e) {
+      if (e instanceof ApiError && WHOAMI_STOP.has(e.code)) throw e;
+      lastError = e;
+    }
+    trace.log("warn", `Weryfikacja przez ${m.via} nie powiodła się (${lastError && lastError.code}) — próbuję następnej metody.`);
+  }
+  // Żadna metoda nie zwróciła konta: jeśli wszystkie odpowiedziały „bez konta”, sesja nie jest zalogowana.
+  if (noUser === methods.length) {
+    throw new ApiError("IG_SESSION_INVALID", { stage: "session", upstream: lastError && lastError.upstream,
+      message: "Instagram nie rozpoznał zalogowanego konta żadną metodą weryfikacji." });
+  }
+  throw lastError;
 }
 
 module.exports = {

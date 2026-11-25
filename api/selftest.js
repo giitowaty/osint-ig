@@ -76,9 +76,11 @@ async function runSelftest(trace, username, session) {
     checks.push({ id: "session", label: "Zapytania z sesją IG", configKey: null, configLabel: null, status: "skipped",
       message: "Pominięto: brak połączonej sesji. Połącz konto w widoku Sesja IG, aby sprawdzić także zapytania GraphQL." });
   } else {
-    await check("whoami", "Konto zalogowanej sesji", "viewerQueryHash", async () => {
+    // Weryfikacja ma kilka metod (users/{id}/info, current_user, stare query_hash) — nie wskazujemy
+    // jednego klucza konfiguracji, tylko podajemy, która metoda zadziałała.
+    await check("whoami", "Konto zalogowanej sesji", null, async () => {
       const who = await fetchWhoami(trace, session);
-      return { detail: `zalogowano jako @${who.username}` };
+      return { detail: `zalogowano jako @${who.username} (metoda: ${who.via})` };
     });
     const tokens = await check("tokens", "Tokeny strony profilu (fb_dtsg, lsd)", null, async () => {
       const tk = await pageTokens(trace, username, session);

@@ -159,6 +159,8 @@ export interface Whoami {
   avatar?: string
   userId?: string
   cookies?: string[]
+  /** Którą metodą zweryfikowano sesję (users/info, current_user, viewer). */
+  via?: string
 }
 
 /** Wynik autotestu połączenia z Instagramem (/api/selftest). */
