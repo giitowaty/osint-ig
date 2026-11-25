@@ -14,7 +14,7 @@ import {
   XIcon,
 } from "lucide-react"
 
-import { BubbleChart } from "@/components/bubble-chart"
+import { BubbleChart, type BubbleChartHandle } from "@/components/bubble-chart"
 import { ForceGraph, type ForceGraphHandle } from "@/components/force-graph"
 import { IgImage } from "@/components/ig-image"
 import { Badge } from "@/components/ui/badge"
@@ -85,32 +85,47 @@ function ExportMenu({
   model,
   shown,
   graphRef,
-  canPng,
+  bubblesRef,
+  mode,
 }: {
   model: GraphModel
   /** Model faktycznie narysowany (przy dużej sieci: widok skupiony). */
   shown: GraphModel
   graphRef: React.RefObject<ForceGraphHandle | null>
-  canPng: boolean
+  bubblesRef: React.RefObject<BubbleChartHandle | null>
+  mode: "graph" | "bubbles"
 }) {
   const stamp = () => new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")
   const large = model.nodes.length > 400 || model.edges.length > 4000
   const rank = () => large ? [] : rankInfluential(model)
-  const savePng = async (kind: "full" | "view") => {
-    const g = graphRef.current
-    if (!g) return
+  const pl = (n: number) => n.toLocaleString("pl-PL")
+  const savePng = async (kind: "full" | "view" | "bubbles") => {
     const partial = shown.nodes.length < model.nodes.length
-    const caption = `OSINT-IG · graf powiązań · ${shown.nodes.length.toLocaleString("pl-PL")} węzłów` +
-      (partial ? ` z ${model.nodes.length.toLocaleString("pl-PL")} (widok skupiony)` : "") +
-      ` · ${shown.edges.length.toLocaleString("pl-PL")} powiązań · ${new Date().toLocaleString("pl-PL")}`
+    const when = new Date().toLocaleString("pl-PL")
     try {
-      const png = kind === "full" ? await g.toPngFull(caption) : await g.toPng()
+      let png
+      if (kind === "bubbles") {
+        const b = bubblesRef.current
+        if (!b) return
+        // Bąbelki pokazują największe 120 powiązanych kont (bez profili analizowanych).
+        const related = shown.nodes.filter((n) => n.kind !== "analyzed").length
+        const drawn = Math.min(120, related)
+        png = await b.toPng(`OSINT-IG · bąbelki powiązanych kont · ${pl(drawn)}` +
+          (drawn < related ? ` największych z ${pl(related)}` : " kont") + ` · wielkość = liczba wystąpień · ${when}`)
+      } else {
+        const g = graphRef.current
+        if (!g) return
+        const caption = `OSINT-IG · graf powiązań · ${pl(shown.nodes.length)} węzłów` +
+          (partial ? ` z ${pl(model.nodes.length)} (widok skupiony)` : "") +
+          ` · ${pl(shown.edges.length)} powiązań · ${when}`
+        png = kind === "full" ? await g.toPngFull(caption) : await g.toPng()
+      }
       if (!png) throw new Error("Przeglądarka nie utworzyła obrazu (zbyt duże płótno albo brak pamięci).")
-      const name = `osint-ig-graf-${kind === "full" ? "caly" : "widok"}-${stamp()}.png`
+      const name = `osint-ig-${kind === "bubbles" ? "babelki" : kind === "full" ? "graf-caly" : "graf-widok"}-${stamp()}.png`
       downloadBlob(name, png.blob)
       log("ok", "app", `Zapisano ${name}: ${png.width}×${png.height} px, ${(png.blob.size / 1024 / 1024).toFixed(1)} MB.`)
     } catch (e) {
-      log("error", "app", "Eksport grafu do PNG nie powiódł się.", { detail: e instanceof Error ? e.message : String(e) })
+      log("error", "app", `Eksport ${kind === "bubbles" ? "bąbelków" : "grafu"} do PNG nie powiódł się.`, { detail: e instanceof Error ? e.message : String(e) })
     }
   }
   return (
@@ -124,20 +139,23 @@ function ExportMenu({
       <DropdownMenuContent align="end" className="w-64">
         <DropdownMenuGroup>
           <DropdownMenuLabel>Obraz</DropdownMenuLabel>
-          <DropdownMenuItem
-            disabled={!canPng}
-            onSelect={() => void savePng("full")}
-          >
-            <ImageIcon />
-            PNG — cały graf (wysoka rozdzielczość)
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            disabled={!canPng}
-            onSelect={() => void savePng("view")}
-          >
-            <ImageIcon />
-            PNG — aktualny widok
-          </DropdownMenuItem>
+          {mode === "graph" ? (
+            <>
+              <DropdownMenuItem onSelect={() => void savePng("full")}>
+                <ImageIcon />
+                PNG — cały graf (wysoka rozdzielczość)
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => void savePng("view")}>
+                <ImageIcon />
+                PNG — aktualny widok
+              </DropdownMenuItem>
+            </>
+          ) : (
+            <DropdownMenuItem onSelect={() => void savePng("bubbles")}>
+              <ImageIcon />
+              PNG — bąbelki (wysoka rozdzielczość)
+            </DropdownMenuItem>
+          )}
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
@@ -392,6 +410,7 @@ export function NetworkView() {
   const [query, setQuery] = React.useState("")
   const [focus, setFocus] = React.useState<string | null>(null)
   const graphRef = React.useRef<ForceGraphHandle>(null)
+  const bubblesRef = React.useRef<BubbleChartHandle>(null)
   const order = useStore((s) => s.order)
   const loading = useStore((s) => s.order.some((u) => s.profiles[u]?.status === "loading"))
   const { model, fullModel, analyzed, truncated } = useGraphModel({ hashtags, lists, minSources: 1, focus })
@@ -477,7 +496,7 @@ export function NetworkView() {
           <span className="tnum hidden text-xs text-muted-foreground xl:inline">
             {analyzed.length} profili · {model.nodes.length} węzłów · {model.edges.length} relacji · {sharedCount} wspólnych{communityMap ? ` · ${communityN} społeczności` : ""}
           </span>
-          <ExportMenu model={fullModel} shown={model} graphRef={graphRef} canPng={mode === "graph"} />
+          <ExportMenu model={fullModel} shown={model} graphRef={graphRef} bubblesRef={bubblesRef} mode={mode} />
           <ListsSheet />
           {mode === "graph" && (
             <Tooltip>
@@ -510,7 +529,7 @@ export function NetworkView() {
               className="absolute inset-0"
             />
           ) : (
-            <BubbleChart model={model} selected={selected} onSelect={setSelected} className="absolute inset-0" />
+            <BubbleChart ref={bubblesRef} model={model} selected={selected} onSelect={setSelected} className="absolute inset-0" />
           )}
           <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-wrap items-end justify-between gap-2 p-3">
             <div className="pointer-events-auto bg-card/90 px-2 py-1.5 backdrop-blur-sm">

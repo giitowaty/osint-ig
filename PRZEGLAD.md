@@ -141,7 +141,7 @@ rozstrzygana głosowaniem źródeł (PESEL najwyższa waga). Runtime ładuje tyl
 
 | Element | Status |
 |---------|--------|
-| Front (wszystkie widoki), kolejka, pula kont, eksport, zapis IndexedDB | ✅ testy vitest (58: kolejka, graf, eksport PNG…) + uruchomienie w przeglądarce |
+| Front (wszystkie widoki), kolejka, pula kont, eksport, zapis IndexedDB | ✅ testy vitest (65: kolejka, graf, bąbelki, eksport PNG…) + uruchomienie w przeglądarce |
 | Backend: parsowanie, analiza treści, słownik, ciasteczka, fallback GraphQL | ✅ testy (54 + 4 + 6 + 8) na mockach IG |
 | Bezpieczeństwo serwera (Host, Origin, import z Firefoksa) | ✅ testy `api/server-security.check.cjs` |
 | Moduł Pythona `social_analytics` | ✅ 58 testów (z `networkx`); bez niego testy grafu są pomijane |
@@ -171,5 +171,4 @@ rozstrzygana głosowaniem źródeł (PESEL najwyższa waga). Runtime ładuje tyl
   identyfikatorów zapytań GraphQL (`doc_id`), gdy IG je zmieni.
 - Suwak opóźnienia/limitu w panelu kolejki i krótka notka opsec przy starcie.
 - Przycisk w rozszerzeniu „wyślij prosto do OSINT-IG” (bez kopiuj-wklej).
-- Eksport widoku Bąbelki do PNG (graf siłowy już ma eksport: cały graf i aktualny widok).
 - Integracja Graph API dla własnych kont (jedyna „czysta” droga do followersów).

@@ -8,6 +8,7 @@
 import * as React from "react"
 
 import type { GEdge, GNode, GraphModel } from "@/lib/graph"
+import { canvasToPng, exportLayout, type PngExport } from "@/lib/png"
 
 // Paleta społeczności (kolorowanie węzłów). Brand-neutralna, czytelna w obu motywach.
 const COMMUNITY_COLORS = [
@@ -25,11 +26,7 @@ export interface SimNode extends GNode {
   degree: number
 }
 
-export interface PngExport {
-  blob: Blob
-  width: number
-  height: number
-}
+export type { PngExport }
 
 export interface ForceGraphHandle {
   fit: () => void
@@ -40,6 +37,9 @@ export interface ForceGraphHandle {
   toPngFull: (caption?: string) => Promise<PngExport | null>
 }
 
+/** Do tylu węzłów eksport podpisuje wszystkie konta; powyżej napisy zlałyby się w plamę. */
+const LABEL_ALL_MAX_NODES = 400
+
 interface DrawTarget {
   ctx: CanvasRenderingContext2D
   size: { w: number; h: number; dpr: number }
@@ -48,48 +48,6 @@ interface DrawTarget {
   caption?: string
 }
 
-// Limity płótna bezpieczne dla Chrome/WebView2/Safari.
-const MAX_SIDE_PX = 8192
-const MAX_AREA_PX = 32_000_000
-/** Do tylu węzłów eksport podpisuje wszystkie konta; powyżej napisy zlałyby się w plamę. */
-const LABEL_ALL_MAX_NODES = 400
-
-/**
- * Rozmiar i skala eksportu całego grafu. Mały graf jest powiększany (dłuższy bok
- * ≥ ok. 1600 px), duży zmniejszany tak, by zmieścić się w limitach płótna.
- */
-export function fullExportLayout(bounds: { x0: number; y0: number; x1: number; y1: number }, preferDpr = 2) {
-  const pad = 56
-  const footer = 28
-  const bw = Math.max(1, bounds.x1 - bounds.x0)
-  const bh = Math.max(1, bounds.y1 - bounds.y0)
-  let k = Math.min(2.5, Math.max(1, 1600 / Math.max(bw, bh)))
-  let dpr = preferDpr
-  const dims = () => ({ w: Math.ceil(bw * k + pad * 2), h: Math.ceil(bh * k + pad * 2 + footer) })
-  const fitFactor = () => {
-    const { w, h } = dims()
-    return Math.min(1, MAX_SIDE_PX / (w * dpr), MAX_SIDE_PX / (h * dpr), Math.sqrt(MAX_AREA_PX / (w * h * dpr * dpr)))
-  }
-  // Najpierw obniżamy gęstość pikseli, dopiero potem zmniejszamy sam graf.
-  let f = fitFactor()
-  if (f < 1) {
-    dpr = Math.max(1, dpr * f)
-    f = fitFactor()
-  }
-  // Pętla, bo margines i stopka nie skalują się razem z grafem.
-  for (let i = 0; f < 1 && i < 20; i++) {
-    k *= f * 0.98
-    f = fitFactor()
-  }
-  const { w, h } = dims()
-  return { w, h, dpr, view: { k, x: pad - bounds.x0 * k, y: pad - bounds.y0 * k } }
-}
-
-function canvasToPng(canvas: HTMLCanvasElement): Promise<PngExport | null> {
-  return new Promise((resolve) => {
-    canvas.toBlob((blob) => resolve(blob ? { blob, width: canvas.width, height: canvas.height } : null), "image/png")
-  })
-}
 
 interface Palette {
   bg: string
@@ -330,7 +288,7 @@ export const ForceGraph = React.forwardRef<
           bounds.x1 = Math.max(bounds.x1, n.x + n.r)
           bounds.y1 = Math.max(bounds.y1, n.y + n.r + 18) // miejsce na podpis pod węzłem
         }
-        const lay = fullExportLayout(bounds)
+        const lay = exportLayout(bounds)
         const out = document.createElement("canvas")
         out.width = Math.round(lay.w * lay.dpr)
         out.height = Math.round(lay.h * lay.dpr)
