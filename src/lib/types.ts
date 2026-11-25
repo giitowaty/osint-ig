@@ -18,6 +18,11 @@ export interface Profile {
   following: number | null
   posts: number | null
   highlights?: number | null
+  /** Linki z sekcji „linki w bio” (IG pozwala na kilka). */
+  bioLinks?: { url: string; title?: string }[]
+  /** Publiczny e-mail / telefon konta firmowego (przycisk „Kontakt”). */
+  businessEmail?: string
+  businessPhone?: string
 }
 
 export interface Post {
@@ -35,11 +40,18 @@ export interface Post {
   tagged: string[]
 }
 
+/** Osoba z listy obserwujących: nazwa wyświetlana i szacunek płci z imienia (backend, słownik PESEL). */
+export interface FollowerPerson {
+  fullName: string
+  gender: "female" | "male" | "unknown"
+  confidence: number
+}
+
 export interface FollowersPage {
   ok: boolean
   username: string
   userId: string
-  users: { username: string; id: string }[]
+  users: ({ username: string; id: string } & Partial<FollowerPerson>)[]
   nextCursor: string | null
   limited: boolean
 }
@@ -133,6 +145,8 @@ export interface FriendList {
   type: "followers" | "following"
   count: number
   users: string[]
+  /** Nazwa wyświetlana + szacunek płci dla każdego konta z listy. */
+  people?: ({ username: string } & FollowerPerson)[]
   truncated: boolean
   pages?: number
   stopReason?: string

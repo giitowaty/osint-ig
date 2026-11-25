@@ -7,6 +7,8 @@ function profileFromWebGraphql(profile, edges) {
     id: String(profile.pk || profile.id), username: profile.username,
     full_name: profile.full_name, biography: profile.biography,
     external_url: profile.external_url, profile_pic_url: profile.profile_pic_url,
+    bio_links: profile.bio_links, public_email: profile.public_email,
+    public_phone_number: profile.public_phone_number || profile.contact_phone_number,
     profile_pic_url_hd: profile.hd_profile_pic_url_info?.url,
     is_verified: profile.is_verified, is_private: profile.is_private,
     category_name: profile.category, is_business_account: profile.is_business,

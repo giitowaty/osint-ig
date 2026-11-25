@@ -1,6 +1,7 @@
 import { ArrowRightIcon, AtSignIcon, TagIcon } from "lucide-react"
 
 import { IgImage } from "@/components/ig-image"
+import { BioPanel } from "@/components/bio-panel"
 import { NotesPanel } from "@/components/notes-panel"
 import { InsightsList, PageBody, Panel, ProfileGate, ProfileHeader, StatStrip } from "@/components/profile-parts"
 import { Badge } from "@/components/ui/badge"
@@ -164,6 +165,8 @@ export function OverviewView() {
                   </button>
                 )}
               </Panel>
+
+              <BioPanel entry={entry} className="2xl:col-span-12" />
 
               <NotesPanel key={entry.username} username={entry.username} className="lg:col-span-2 2xl:col-span-4" />
 

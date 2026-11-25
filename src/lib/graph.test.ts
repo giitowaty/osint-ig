@@ -94,3 +94,23 @@ describe("buildGraph", () => {
     expect(off.edges.length).toBe(0)
   })
 })
+
+describe("graf: wzmianki z bio", () => {
+  const entry = (username: string, bio: string, connections: { username: string; count: number }[] = []) =>
+    ({ username, status: "ready", inNetwork: true, data: { profile: { username, bio, externalUrl: "" }, connections, posts: [] } }) as unknown as ProfileEntry
+
+  it("konto wspomniane w bio jest węzłem połączonym z profilem", () => {
+    const m = buildGraph([entry("alpha", "współpraca: @marka_x · kontakt@alpha.pl")], { lists: false, hashtags: false, minSources: 1 })
+    expect(m.nodes.map((n) => n.id).sort()).toEqual(["alpha", "marka_x"])
+    expect(m.edges).toEqual([{ source: "alpha", target: "marka_x", kind: "ref", weight: 1 }])
+  })
+
+  it("wzmianka w bio dwóch profili czyni konto wspólnym; domena e-maila nie jest kontem", () => {
+    const m = buildGraph([entry("alpha", "@marka_x"), entry("beta", "ambasador @marka_x, biuro@beta.pl", [{ username: "marka_x", count: 2 }])],
+      { lists: false, hashtags: false, minSources: 1 })
+    const marka = m.nodes.find((n) => n.id === "marka_x")!
+    expect(marka.shared).toBe(true)
+    expect(marka.weight).toBe(4) // 1 (bio alpha) + 1 (bio beta) + 2 (posty beta)
+    expect(m.nodes.some((n) => n.id === "beta.pl")).toBe(false)
+  })
+})

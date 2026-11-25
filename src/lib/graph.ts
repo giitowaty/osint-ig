@@ -7,6 +7,7 @@
  * rodzaj wpływu: hub / bridge / connector / peripheral.
  * -------------------------------------------------------------------------- */
 
+import { parseBio } from "./bio"
 import type { ProfileEntry } from "./store"
 
 export type NodeKind = "analyzed" | "account" | "hashtag"
@@ -92,6 +93,8 @@ export function buildGraph(profiles: ProfileEntry[], opts: GraphOptions): GraphM
       else edge(u, id, kind, w)
     }
     for (const c of p.data?.connections ?? []) ref(c.username, c.count || 1, "ref")
+    // Konta wspomniane w bio (np. „współpraca: @marka”) to też powiązanie.
+    if (p.data?.profile) for (const m of parseBio(p.data.profile).mentions) ref(m, 1, "ref")
     if (opts.lists) {
       for (const f of p.following ?? []) ref(f, 1, "following")
       for (const f of p.followers ?? []) ref(f, 1, "follower")

@@ -4,7 +4,7 @@
  * -------------------------------------------------------------------------- */
 
 import { useSyncExternalStore } from "react"
-import type { ApiErrorBody, Health, ProfilePayload, TraceEvent } from "./types"
+import type { ApiErrorBody, FollowerPerson, Health, ProfilePayload, TraceEvent } from "./types"
 
 export type View =
   | "overview"
@@ -35,6 +35,8 @@ export interface ProfileEntry {
   updatedAt: number
   followers?: string[]
   following?: string[]
+  /** Obserwujący: nazwa wyświetlana i szacunek płci (z pobranych list). */
+  followerInfo?: Record<string, FollowerPerson>
   inNetwork: boolean
   notes?: string
   tags?: string[]

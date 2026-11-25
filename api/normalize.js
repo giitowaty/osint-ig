@@ -139,6 +139,15 @@ function estimateAudience(user) {
   };
 }
 
+/** Lista „linków w bio” (IG pozwala na kilka): [{ url, title }], tylko http(s). */
+function bioLinksOf(user) {
+  const list = Array.isArray(user.bio_links) ? user.bio_links : [];
+  return list
+    .map((l) => ({ url: String((l && (l.url || l.lynx_url)) || "").trim(), title: String((l && l.title) || "").trim() }))
+    .filter((l) => /^https?:\/\//i.test(l.url))
+    .slice(0, 10);
+}
+
 function buildProfile(user, username) {
   return {
     id: user.id || null,
@@ -156,6 +165,10 @@ function buildProfile(user, username) {
     following: user.edge_follow ? user.edge_follow.count : null,
     posts: user.edge_owner_to_timeline_media ? user.edge_owner_to_timeline_media.count : null,
     highlights: user.highlight_reel_count ?? null,
+    // „Linki w bio” i publiczny kontakt konta firmowego — rozbierane na froncie (src/lib/bio.ts).
+    bioLinks: bioLinksOf(user),
+    businessEmail: String(user.business_email || user.public_email || "").trim(),
+    businessPhone: String(user.business_phone_number || user.public_phone_number || user.contact_phone_number || "").trim(),
   };
 }
 

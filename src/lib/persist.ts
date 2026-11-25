@@ -178,7 +178,7 @@ export async function savedSize(): Promise<number> {
 
 /** Import sesji z pliku eksportu (Narzędzia → Eksport całej sesji). */
 export function importSession(json: unknown): number {
-  const j = json as { profiles?: { username: string; data?: ProfileEntry["data"]; followers?: string[]; following?: string[]; manual?: ProfileEntry["manual"]; notes?: string; tags?: string[] }[] }
+  const j = json as { profiles?: { username: string; data?: ProfileEntry["data"]; followers?: string[]; following?: string[]; followerInfo?: ProfileEntry["followerInfo"]; manual?: ProfileEntry["manual"]; notes?: string; tags?: string[] }[] }
   if (!j || !Array.isArray(j.profiles)) throw new Error("Plik nie wygląda na eksport sesji OSINT-IG (brak listy profiles).")
   let n = 0
   setState((s) => {
@@ -195,6 +195,7 @@ export function importSession(json: unknown): number {
         data: p.data,
         followers: p.followers,
         following: p.following,
+        followerInfo: p.followerInfo && typeof p.followerInfo === "object" ? p.followerInfo : undefined,
         manual: p.manual,
         notes: p.notes,
         tags: p.tags,

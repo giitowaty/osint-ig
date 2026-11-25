@@ -13,10 +13,15 @@ test("followers pages preserve IDs/cursors, report restricted lists and reject s
     global.fetch = async (url, options) => {
       assert.match(url, /friendships\/123\/followers\/\?count=50/);
       assert.equal(options.headers.Cookie, session.cookie);
-      return response({ status: "ok", users: [{ pk: "456", username: "First_User", email: "discard-me" }, null], next_max_id: "next page" });
+      return response({ status: "ok", users: [{ pk: "456", username: "First_User", full_name: "Anna Kowalska", email: "discard-me" }, { pk: "457", username: "jan_k", full_name: "" }, null], next_max_id: "next page" });
     };
     const first = await fetchFollowersPage(trace(), "source", "123", session, "", 100);
-    assert.deepEqual(first.users, [{ username: "first_user", id: "456" }]);
+    // nazwa wyświetlana + szacunek płci z imienia; inne pola IG (np. email) nie przechodzą
+    assert.deepEqual(first.users, [
+      { username: "first_user", id: "456", fullName: "Anna Kowalska", gender: "female", confidence: first.users[0].confidence },
+      { username: "jan_k", id: "457", fullName: "", gender: first.users[1].gender, confidence: first.users[1].confidence },
+    ]);
+    assert.ok(first.users[0].confidence > 0.5);
     assert.equal(first.nextCursor, "next page");
     assert.equal(first.limited, false);
     global.fetch = async (url) => {

@@ -12,6 +12,18 @@
 const { ApiError, toApiError } = require("./errors");
 const { profileFromWebGraphql } = require("./web-profile");
 const { query: igQuery, loadQueries } = require("./ig-queries");
+const { guessGender } = require("./names");
+
+/**
+ * Osoba z listy obserwujących: nazwa wyświetlana i szacunek płci z imienia
+ * (ten sam słownik co próbka komentujących). Daje próbkę setek osób zamiast
+ * kilku z podglądu komentarzy.
+ */
+function personFrom(u) {
+  const fullName = String((u && u.full_name) || "").trim().slice(0, 100);
+  const g = guessGender(fullName, u.username);
+  return { fullName, gender: g.gender, confidence: g.confidence };
+}
 
 // Identyfikatory zapytań (app id, query_hash, doc_id) są w ig-queries.js i można
 // je nadpisać plikiem bez przebudowy programu, gdy Instagram je zmieni.
@@ -383,7 +395,7 @@ async function fetchFollowersPage(trace, username, userId, session, cursor, coun
     url, session, referer: `https://www.instagram.com/${encodeURIComponent(username)}/` });
   if (json.status === "fail" || !Array.isArray(json.users)) throw new ApiError("IG_BAD_RESPONSE", { stage: "list", message: "Instagram nie zwrócił listy obserwujących." });
   const users = json.users.filter((u) => u && /^[A-Za-z0-9._]{1,30}$/.test(u.username || "") && /^\d+$/.test(String(u.pk || u.id || "")))
-    .map((u) => ({ username: u.username.toLowerCase(), id: String(u.pk || u.id) }));
+    .map((u) => ({ username: u.username.toLowerCase(), id: String(u.pk || u.id), ...personFrom(u) }));
   const nextCursor = json.next_max_id ? String(json.next_max_id) : null;
   if (nextCursor && nextCursor === cursor) throw new ApiError("IG_BAD_RESPONSE", { stage: "list", message: "Instagram zwrócił ponownie tę samą stronę obserwujących." });
   if (nextCursor && !users.length) throw new ApiError("IG_BAD_RESPONSE", { stage: "list", message: "Instagram zwrócił pustą stronę z kolejnym kursorem." });
@@ -411,6 +423,7 @@ async function fetchFriendList(trace, username, type, session, limit) {
   const kind = type === "following" ? "following" : "followers";
   const cap = Math.min(Math.max(1, limit || 300), 2000);
   const out = [];
+  const people = [];
   let maxId = "";
   let page = 0;
   let stopReason = "koniec listy";
@@ -442,6 +455,7 @@ async function fetchFriendList(trace, username, type, session, limit) {
     }
     const names = usersFromResponse(json);
     for (const n of names) out.push(n);
+    for (const u of json.users || []) if (u && u.username) people.push({ username: String(u.username).toLowerCase(), ...personFrom(u) });
     trace.emit({ type: "progress", stage: "list", current: out.length, total: cap, label: `${out.length} kont` });
     if (!names.length) { stopReason = "pusta strona"; break; }
     if (!json.next_max_id) break;
@@ -460,6 +474,8 @@ async function fetchFriendList(trace, username, type, session, limit) {
     type: kind,
     count: Math.min(out.length, cap),
     users: out.slice(0, cap),
+    // nazwa wyświetlana + szacunek płci (do widoku Odbiorcy)
+    people: people.slice(0, cap),
     truncated: out.length >= cap,
     pages: page,
     stopReason,

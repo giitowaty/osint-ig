@@ -1,6 +1,39 @@
 /* Analiza heurystyczna profilu po stronie klienta (wnioski, treści, eksport). */
 
-import type { Post, Profile, ProfilePayload } from "./types"
+import { parseBio } from "./bio"
+import type { Audience, FollowerPerson, Post, Profile, ProfilePayload } from "./types"
+
+/** Polska odmiana liczebnika: 1 link, 2–4 linki, 5+ linków (12–14 też „linków”). */
+export function plural(n: number, one: string, few: string, many: string): string {
+  if (n === 1) return one
+  const d = n % 10, h = n % 100
+  return d >= 2 && d <= 4 && (h < 12 || h > 14) ? few : many
+}
+
+/** Minimalna liczba osób z listy, od której szacunek ma sens. */
+export const FOLLOWER_SAMPLE_MIN = 20
+
+/**
+ * Szacunek płci z pobranej listy obserwujących (nazwa wyświetlana → słownik imion).
+ * Większa próbka niż podgląd komentarzy, ale nadal szacunek: lista to fragment
+ * obserwujących, a wiele kont nie ma imienia w nazwie. null, gdy próbka za mała.
+ */
+export function followerGender(info: Record<string, FollowerPerson> | undefined): Audience | null {
+  const people = Object.entries(info ?? {})
+  if (people.length < FOLLOWER_SAMPLE_MIN) return null
+  let female = 0, male = 0, unknown = 0
+  for (const [, p] of people) {
+    if (p.gender === "female") female++
+    else if (p.gender === "male") male++
+    else unknown++
+  }
+  // Do weryfikacji: najpierw osoby z rozpoznaną płcią, potem reszta.
+  const sample = people
+    .map(([username, p]) => ({ username, fullName: p.fullName, gender: p.gender, confidence: p.confidence }))
+    .sort((a, b) => Number(a.gender === "unknown") - Number(b.gender === "unknown"))
+    .slice(0, 80)
+  return { available: true, sampleSize: people.length, female, male, unknown, sample, source: "nazwy wyświetlane z pobranej listy obserwujących" }
+}
 
 const nf = new Intl.NumberFormat("pl-PL")
 const nfCompact = new Intl.NumberFormat("pl-PL", { notation: "compact", maximumFractionDigits: 1 })
@@ -121,11 +154,18 @@ export function insights(p: Profile, stats: Stats): Insight[] {
       tone: "neutral",
     })
   }
+  const bio = parseBio(p)
+  const found = [
+    bio.links.length && `${bio.links.length} ${plural(bio.links.length, "link", "linki", "linków")}`,
+    bio.emails.length && "e-mail",
+    bio.phones.length && "telefon",
+    bio.mentions.length && `${bio.mentions.length} ${plural(bio.mentions.length, "wzmianka", "wzmianki", "wzmianek")}`,
+  ].filter(Boolean)
   out.push({
     key: "bio",
-    title: p.bio ? "Bio wypełnione" : "Puste bio",
-    text: p.externalUrl ? "w bio jest link zewnętrzny" : p.bio ? "bez linku zewnętrznego" : "brak opisu profilu",
-    tone: p.bio ? "neutral" : "warn",
+    title: p.bio ? "Bio wypełnione" : bio.links.length ? "Bio bez opisu" : "Puste bio",
+    text: found.length ? `w bio: ${found.join(", ")} (szczegóły niżej)` : p.bio ? "bez linków i kontaktu" : "brak opisu profilu",
+    tone: p.bio || bio.links.length ? "neutral" : "warn",
   })
   return out
 }

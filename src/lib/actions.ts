@@ -24,7 +24,7 @@ import {
 } from "./store"
 import { parseCookieInput, toHeader, type CookieBundle } from "./cookies"
 import { apiBase } from "./runtime"
-import type { ApiErrorBody, FirefoxCandidate, FollowersPage, FriendList, ProfilePayload, Whoami } from "./types"
+import type { ApiErrorBody, FirefoxCandidate, FollowerPerson, FollowersPage, FriendList, ProfilePayload, Whoami } from "./types"
 import { flushSaved } from "./persist"
 
 export function normalizeUsername(raw: string): string {
@@ -185,7 +185,10 @@ async function loadFollowersPage(epoch: number) {
     const pending = names.filter((u) => !ready.includes(u) && !current.queue.items.includes(u))
     const discovered = source.discovered + names.length
     const complete = !page.nextCursor || (!!source.limit && discovered >= source.limit)
-    patchProfile(source.username, { followers: [...new Set([...(current.profiles[source.username]?.followers ?? []), ...names])] })
+    patchProfile(source.username, {
+      followers: [...new Set([...(current.profiles[source.username]?.followers ?? []), ...names])],
+      followerInfo: mergePeople(current.profiles[source.username]?.followerInfo, page.users.filter((u) => u?.fullName != null && u.gender)),
+    })
     patchQueue({ items: [...current.queue.items, ...pending], followersSource: { ...source, ids, discovered,
       skipped: source.skipped + ready.length, cursor: page.nextCursor ?? undefined, complete,
       limited: source.limited || page.limited, error: undefined } })
@@ -196,6 +199,16 @@ async function loadFollowersPage(epoch: number) {
     finishJob(id, body.code === "CANCELLED" ? "cancelled" : "error", body.code === "CANCELLED" ? undefined : body)
     throw e
   } finally { if (queueJob === id) queueJob = undefined }
+}
+
+/** Dokłada osoby z listy obserwujących (nazwa + szacunek płci) do zapisanych przy profilu. */
+function mergePeople(prev: Record<string, FollowerPerson> | undefined, people: ({ username: string } & Partial<FollowerPerson>)[]) {
+  const out: Record<string, FollowerPerson> = Object.assign(Object.create(null), prev ?? {})
+  for (const p of people) {
+    if (!p?.username || !p.gender || validateUsername(p.username)) continue
+    out[p.username.toLowerCase()] = { fullName: p.fullName ?? "", gender: p.gender, confidence: p.confidence ?? 0 }
+  }
+  return out
 }
 
 /** Dodaje konta do kolejki (pomija duplikaty i już analizowane, chyba że fresh). */
@@ -396,7 +409,7 @@ export async function fetchList(username: string, type: "followers" | "following
         onStart: (s) => setJobTrace(id, s.traceId),
       }
     )
-    patchProfile(username, { [type]: data.users })
+    patchProfile(username, { [type]: data.users, ...(type === "followers" && data.people?.length ? { followerInfo: mergePeople(getState().profiles[username]?.followerInfo, data.people) } : {}) })
     log("ok", "app", `${label}: ${data.count} kont (${data.stopReason ?? "koniec"})`, { jobId: id })
     finishJob(id, "ok")
     return data

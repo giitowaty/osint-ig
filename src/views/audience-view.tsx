@@ -3,6 +3,7 @@ import { TriangleAlertIcon } from "lucide-react"
 import { PageBody, Panel, ProfileGate } from "@/components/profile-parts"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
+import { FOLLOWER_SAMPLE_MIN, followerGender } from "@/lib/analysis"
 import { cn } from "@/lib/utils"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
@@ -15,10 +16,11 @@ interface Seg {
   light?: boolean
 }
 
-function StackBar({ segs, label }: { segs: Seg[]; label: string }) {
+function StackBar({ segs, label, showLabel = false }: { segs: Seg[]; label: string; showLabel?: boolean }) {
   const total = segs.reduce((a, s) => a + s.value, 0) || 1
   return (
     <div className="flex flex-col gap-3">
+      {showLabel && <h3 className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">{label}</h3>}
       <div className="flex h-8 w-full gap-0.5" role="img" aria-label={label}>
         {segs
           .filter((s) => s.value > 0)
@@ -62,6 +64,10 @@ export function AudienceView() {
       {(entry) => {
         const s = entry.data.content?.sentiment
         const a = entry.data.audience
+        const fa = followerGender(entry.followerInfo)
+        const listed = Object.keys(entry.followerInfo ?? {}).length
+        // Do weryfikacji pokazujemy większą próbkę (z listy obserwujących), gdy jest.
+        const sampleSource = fa ?? (a?.available ? a : null)
         return (
           <PageBody>
             <div className="grid gap-4 xl:grid-cols-2">
@@ -109,19 +115,41 @@ export function AudienceView() {
                 )}
               </Panel>
 
-              <Panel title="Płeć odbiorców · szacunek" description={a?.available ? `Próbka ${a.sampleSize} osób: ${a.source}` : undefined}>
+              <Panel
+                title="Płeć odbiorców · szacunek"
+                description={[fa && `Lista obserwujących: ${fa.sampleSize} kont`, a?.available && `podgląd komentujących i lajkujących: ${a.sampleSize} osób`].filter(Boolean).join(" · ") || undefined}
+              >
                 <div className="flex flex-col gap-4">
                   <Alert>
                     <TriangleAlertIcon />
                     <AlertTitle>To nie jest demografia obserwujących</AlertTitle>
                     <AlertDescription>
-                      Instagram pokazuje ją tylko właścicielowi konta. Tu zgadujemy płeć z imion w małej próbce osób komentujących
-                      i lajkujących (słownik PESEL + źródła otwarte). Wynik ma duży margines błędu.
+                      Instagram pokazuje ją tylko właścicielowi konta. Tu zgadujemy płeć z imion w nazwach kont — z pobranej
+                      listy obserwujących albo z małej próbki komentujących i lajkujących (słownik PESEL + źródła otwarte).
+                      Wiele kont nie ma imienia w nazwie, a lista to tylko fragment obserwujących: wynik ma duży margines błędu.
                     </AlertDescription>
                   </Alert>
+                  {fa ? (
+                    <StackBar
+                      label={`Obserwujący · z listy, ${fa.sampleSize} kont`}
+                      showLabel
+                      segs={[
+                        { key: "f", label: "Kobiety", value: fa.female, color: "var(--series-1)" },
+                        { key: "m", label: "Mężczyźni", value: fa.male, color: "var(--series-2)" },
+                        { key: "u", label: "Nieokreślona", value: fa.unknown, color: "var(--series-other)", light: true },
+                      ]}
+                    />
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      {listed
+                        ? `Pobrano dopiero ${listed} kont z listy obserwujących — potrzeba co najmniej ${FOLLOWER_SAMPLE_MIN}, by liczyć szacunek.`
+                        : "Pobierz listę obserwujących (Przegląd → Analizuj obserwujących albo Graf → Listy obserwujących), aby policzyć szacunek z dużo większej próbki."}
+                    </p>
+                  )}
                   {a?.available ? (
                     <StackBar
-                      label="Szacunek płci"
+                      label={`Komentujący i lajkujący · podgląd, ${a.sampleSize} osób`}
+                      showLabel
                       segs={[
                         { key: "f", label: "Kobiety", value: a.female, color: "var(--series-1)" },
                         { key: "m", label: "Mężczyźni", value: a.male, color: "var(--series-2)" },
@@ -135,10 +163,10 @@ export function AudienceView() {
               </Panel>
             </div>
 
-            {a?.sample && a.sample.length > 0 && (
+            {sampleSource?.sample && sampleSource.sample.length > 0 && (
               <Panel
                 title="Próbka do weryfikacji"
-                description="Każda osoba z próbki i to, jak ją sklasyfikowano. Sprawdź, czy heurystyka ma sens dla tego profilu."
+                description={`${fa ? "Osoby z listy obserwujących" : "Osoby z podglądu komentarzy i polubień"} i to, jak je sklasyfikowano. Sprawdź, czy heurystyka ma sens dla tego profilu.`}
               >
                 <div className="max-h-[28rem] overflow-auto">
                   <Table>
@@ -151,7 +179,7 @@ export function AudienceView() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {a.sample.map((x) => (
+                      {sampleSource.sample.map((x) => (
                         <TableRow key={x.username}>
                           <TableCell className="font-medium">@{x.username}</TableCell>
                           <TableCell className="text-muted-foreground">{x.fullName || "—"}</TableCell>
